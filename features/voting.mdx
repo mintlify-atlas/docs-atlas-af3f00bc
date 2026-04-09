@@ -1,0 +1,148 @@
+---
+title: Voting
+description: Player-initiated voting in XCore — votekick, RTV, event votes, and new-wave votes.
+---
+
+XCore's voting system allows players to collectively make in-game decisions. All vote types share a common `VoteSession` base class and are managed by the singleton `VoteService`. Only one vote can be active at a time.
+
+## How Voting Works
+
+<Steps>
+  <Step title="Start a vote">
+    A player (or admin) initiates a vote via the appropriate command. `VoteService.startVote(session)` stores the active `VoteSession`. If another vote is already in progress, the command is rejected unless an admin forces it.
+  </Step>
+  <Step title="Cast votes">
+    Other players run `/vote y` or `/vote n`. Each player can only vote once. Players who leave the server have their vote removed automatically.
+  </Step>
+  <Step title="Pass or fail">
+    A vote passes when the number of `YES` votes reaches `votesRequired()`. With more than 2 online players the threshold is `⌈players × 0.55⌉` (55 %); with 2 or fewer it requires all players to vote yes. If the vote timer expires (default 60 seconds, set via `GlobalConfig.voteDurationSeconds`) without passing, it fails.
+  </Step>
+  <Step title="Cancel (admin only)">
+    An admin can run `/vote c` to cancel any active vote immediately.
+  </Step>
+</Steps>
+
+<Note>
+  The vote duration is controlled by `GlobalConfig.voteDurationSeconds` (default: `60.0`). This applies to all vote types.
+</Note>
+
+## VoteChoice Parsing
+
+The `/vote` command accepts the following case-insensitive inputs:
+
+| Input | Parsed as |
+|-------|-----------|
+| `y`, `yes` | `VoteChoice.YES` (+1) |
+| `n`, `no` | `VoteChoice.NO` (−1) |
+| blank / anything else | `VoteChoice.ABSTAIN` (invalid, rejected) |
+
+Inputs are normalized through `TextUtils.stripFooCharacters` before matching, so leading/trailing noise characters are ignored.
+
+## Commands
+
+### `/vote <choice>`
+
+Cast a vote in the currently active session.
+
+```
+/vote y
+/vote yes
+/vote n
+/vote no
+/vote c   # admin-only: cancel the current vote
+```
+
+**Restrictions:**
+- No active vote → error
+- Already voted → error
+- Target of a votekick cannot vote in their own kick
+- Only admins can cancel with `c`
+
+### `/votekick <target> <reason>`
+
+Start a votekick against `<target>`. `<reason>` is a greedy string (captures the rest of the line).
+
+```
+/votekick PlayerName Griefing the team base
+```
+
+## Vote Types
+
+### VoteKick
+
+Initiates a vote to kick a player from the server.
+
+**Requirements:**
+- The initiating player must have at least `GlobalConfig.minPlayTimeForVotekick` minutes of total playtime (default: 60 minutes). This is enforced via the `@RequiresPlayTime(PlayTimeLimit.VOTE_KICK)` annotation on the command.
+- The target cannot be an admin. Attempting to votekick an admin kicks the initiating player instead (30-second kick with a localized error).
+- The target must be on the same team as the initiating player.
+- A votekick cannot start if another votekick is already in progress.
+- A player cannot vote in their own kick.
+
+**Threshold:** Requires **3 votes** if more than 3 players are online, otherwise **2**.
+
+**On success:** The target is kicked with `KickReason.vote` and banned for `GlobalConfig.voteKickBanDurationMinutes` minutes (default: 30). A `VoteKickEvent` is posted to the network for logging via Redis.
+
+**On failure:** A broadcast notifies all players that the vote failed.
+
+**Player leaves:** If the target leaves while votes exist, the kick succeeds immediately.
+
+### VoteRtv (Rock the Vote)
+
+Initiates a vote to change the current map.
+
+```
+/vote y   # after an RTV vote has been started by another player
+```
+
+<Note>
+  RTV can be disabled by adding `"rtv"` to `disabledFeatures` in `config.json`. See [Game Modes](/features/game-modes) for configuration details.
+</Note>
+
+**Map selection:** The vote is started by a separate command (not `VoteController`) that provides a target `Map`. If the vote initiator manually selected a map, the map's popularity score is increased by 2.0 in MongoDB.
+
+**On success:**
+1. The current map's skip counter is incremented in the `MapData` record.
+2. After `GlobalConfig.mapSwitchDelaySeconds` (default: 10 seconds), the game ends (`FinishReason.RTV`) and the world reloads with the chosen map using the last server game mode.
+
+**On cancel:** Admin cancels broadcast the map name and admin name to all players.
+
+### VoteEvent
+
+Initiates a vote to activate an event on an `event` server.
+
+**On success:** `EventDataRepository.activateEvent(target)` is called, making the event active.
+
+**Forced activation (admin):** If the `forced` flag is set, `EventService` ends any current vote and activates the event immediately without a vote, broadcasting who skipped to it.
+
+See [Game Modes — Event Mode](/features/game-modes#event-mode) for context on how events work.
+
+### VoteNewWave
+
+Initiates a vote to skip to the next wave immediately.
+
+**Obsolete check:** When the vote passes, if the current wave number has already advanced past `sourceWave` (e.g. the wave advanced naturally while voting), the skip is aborted and a `vnw-obsolete` message is broadcast. Otherwise, `Vars.logic.skipWave()` is called.
+
+**Usage:** Started by a `/vnw` or similar command (outside `VoteController`).
+
+<Note>
+  VoteNewWave can be disabled by adding `"vnw"` to `disabledFeatures` in `config.json`.
+</Note>
+
+## Disabling Vote Features
+
+Add feature keys to the `disabledFeatures` set in your server's `config.json`:
+
+```json
+{
+  "server": "mini-pvp",
+  "disabledFeatures": ["rtv", "vnw"]
+}
+```
+
+| Key | Disables |
+|-----|----------|
+| `rtv` | Rock the Vote (map change voting) |
+| `vnw` | Vote New Wave (skip wave voting) |
+
+These keys correspond to the `Feature` enum values `Feature.RTV` and `Feature.VNW`. The check is performed via `Config.isFeatureDisabled(Feature)` at the point where each vote type is initiated.

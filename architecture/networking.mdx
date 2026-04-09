@@ -1,0 +1,169 @@
+---
+title: Networking & Redis Event Bus
+description: How XCore uses Redis Streams for cross-server event delivery, consumer groups, dead-letter queues, and server discovery.
+---
+
+## Overview
+
+XCore's cross-server communication is built on **Redis Streams**. Each event type maps to a dedicated stream key. Every server in the cluster consumes streams as a member of a consumer group, so events are load-balanced and delivered exactly once per server.
+
+The stack has three layers:
+
+| Layer | Class | Responsibility |
+|---|---|---|
+| Public API | `NetworkService` | Post, subscribe, RPC request/respond |
+| Backend | `RedisNetworkBackend` | Lettuce connection, consumer loops, DLQ |
+| Routing | `RedisStreamRouter` | Maps event types to stream keys and TTLs |
+
+## Publishing Events
+
+`NetworkService.post(Object event)` is the single call site for publishing any cross-server event:
+
+```java
+// Broadcast a ban to all servers
+networkService.post(banData);
+
+// Broadcast a global chat message
+networkService.post(new SocketEvents.GlobalChatEvent(...));
+
+// Send a server-specific command (routed to one target)
+networkService.post(new SocketEvents.KickBannedPlayer(...));
+```
+
+Internally `post` delegates to `RedisNetworkBackend.send()`, which:
+
+1. Calls `RedisStreamRouter.route()` to resolve the stream key and TTL.
+2. Serializes the event to JSON with Gson.
+3. Appends the message to the stream with `XADD` and trims old entries.
+
+Publish failures are swallowed with a warning log and a warning-dedup flag so the server keeps running if Redis is temporarily unavailable.
+
+## Stream Routing
+
+`RedisStreamRouter` maps every event class to a stream key and a TTL. Two patterns exist:
+
+**Broadcast streams** — all servers subscribe, one stream key:
+
+```
+xcore:evt:chat:message        (60 s TTL)
+xcore:evt:chat:global         (60 s TTL)
+xcore:evt:moderation:ban      (120 s TTL)
+xcore:evt:moderation:mute     (120 s TTL)
+xcore:evt:moderation:votekick (120 s TTL)
+xcore:evt:player:joinleave    (60 s TTL)
+xcore:evt:discord:link-code   (120 s TTL)
+xcore:evt:discord:link-status (120 s TTL)
+```
+
+**Per-server command streams** — keyed by target server name, consumed only by that server:
+
+```
+xcore:cmd:kick-banned:<server>
+xcore:cmd:reload-cache:<server>
+xcore:cmd:discord-message:<server>
+xcore:cmd:maps-load:<server>
+xcore:cmd:execute-command:broadcast
+```
+
+**RPC streams** — request/response pairs:
+
+```
+xcore:rpc:req:<server>          (request)
+xcore:rpc:resp:<server>         (response)
+```
+
+## Subscribing to Events
+
+```java
+// Subscribe to ban events published by any server
+Subscription<BanData> sub = networkService.subscribe(BanData.class, ban -> {
+    // enforce the ban locally
+});
+
+// Unsubscribe when no longer needed
+sub.unsubscribe();
+```
+
+Each `subscribe` call spawns a **virtual thread** running a blocking `XREADGROUP` loop against the target stream. If `redisReclaimEnabled` is `true`, a second virtual thread runs `XAUTOCLAIM` to recover stalled messages from crashed consumers.
+
+## Consumer Group Pattern
+
+Every server joins each stream as a named consumer inside a shared group:
+
+- **Group name** is derived from `redisGroupPrefix` + the stream key (managed by `RedisStreamSupport`).
+- **Consumer name** is `redisConsumerName` (unique per server node).
+- Messages are acknowledged with `XACK` after successful dispatch.
+- If the consumer group does not yet exist on the stream, it is created automatically.
+
+This means adding a new server to the cluster requires no Redis configuration — the group and consumer are auto-created on first connect.
+
+## Dead Letter Queue
+
+When a message cannot be dispatched after `redisMaxDeliveryAttempts` attempts, and `redisDlqEnabled` is `true`, the message is routed to a DLQ stream:
+
+```
+<redisDlqPrefix>:<original-stream>
+```
+
+For example, a failed ban event on `xcore:evt:moderation:ban` lands in `xcore:dlq:xcore:evt:moderation:ban`. The DLQ entry includes the original stream, group, attempt count, failure reason, and timestamp, enabling offline inspection and replay.
+
+## Idempotency
+
+Mutating event types (those that trigger side effects such as kicking a player, changing a badge, or confirming a Discord link) carry an `idempotency_key`. Before dispatching, `RedisNetworkBackend` performs an atomic `SET NX EX` on a key scoped to the consuming server:
+
+```
+xcore:idmp:consume:<server>:<idempotency_key>
+```
+
+If the key already exists the message is acknowledged and skipped, preventing duplicate processing even when a message is redelivered after a crash.
+
+## RPC (Request / Response)
+
+For request-response patterns (e.g. fetching the map list from a specific server), XCore uses RPC over Redis:
+
+```java
+networkService.request(
+    new SocketEvents.MapsListRequest(targetServer),
+    response -> handleResponse(response),
+    () -> handleTimeout()
+);
+```
+
+The request is posted to `xcore:rpc:req:<server>`. The target server reads it, processes it, then writes the response to `xcore:rpc:resp:<requester>`. The requesting server awaits on a virtual thread with a 5-second timeout.
+
+## Server Discovery
+
+`ServerDiscoveryService` publishes periodic heartbeats over Redis, allowing the cluster to maintain a live registry of online servers. The discovery handler installed in `XcorePlugin.initNetworkHooks` responds to Mindustry's UDP discovery packets with the data assembled by `ServerDiscoveryService.handleDiscovery()`.
+
+## Configuration Reference
+
+All Redis settings live in `Config` (per-server config file):
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `redisUrl` | `String` | `redis://127.0.0.1:6379` | Lettuce connection URI |
+| `redisGroupPrefix` | `String` | `xcore:cg` | Prefix for consumer group names |
+| `redisConsumerName` | `String` | `xcore-node` | Unique name for this consumer within the group |
+| `redisReclaimEnabled` | `boolean` | `true` | Enable `XAUTOCLAIM` loop to recover stalled messages |
+| `redisReclaimMinIdleMs` | `long` | `15000` | Minimum idle time (ms) before a message is eligible for reclaim |
+| `redisReclaimBatch` | `int` | `50` | Number of messages to reclaim per `XAUTOCLAIM` call |
+| `redisDlqEnabled` | `boolean` | `true` | Route permanently failed messages to a DLQ stream |
+| `redisDlqPrefix` | `String` | `xcore:dlq` | Key prefix for DLQ streams |
+| `redisMaxDeliveryAttempts` | `int` | `3` | Delivery attempts before DLQ routing |
+
+<Note>
+  `redisUrl` follows the [Lettuce URI format](https://lettuce.io/core/release/reference/#redisuri.uri-syntax): `redis://[:password@]host[:port][/database]` or `rediss://` for TLS. Sentinel and cluster URIs are also supported.
+</Note>
+
+## Observability
+
+`RedisNetworkBackend.metricsSnapshot()` returns a `Map<String, Long>` with the following counters, available for logging or external export:
+
+```
+published_events       consume_failures
+publish_failures       rpc_requests
+consumed_events        rpc_responses
+rpc_timeouts           dlq_routed
+reclaimed_messages     active_subscriber_threads
+pending_rpc_contexts   tracked_failures
+```

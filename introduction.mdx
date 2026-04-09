@@ -1,0 +1,72 @@
+---
+title: Introduction
+description: XCore Plugin is a multifunctional Mindustry server plugin providing player management, moderation, cross-server networking, and translation features for operators running XCore-family servers.
+---
+
+XCore Plugin is the main server-side plugin for Mindustry servers in the XCore network. It is designed for server operators who want a comprehensive, production-grade plugin that handles player data persistence, cross-server communication, real-time chat translation, moderation, voting, and game-mode logic on top of vanilla Mindustry.
+
+## Key capabilities
+
+<CardGroup cols={2}>
+  <Card title="Player management" icon="user">
+    Persistent player profiles stored in MongoDB: custom nicknames, playtime tracking, PvP rating, per-mode match statistics, unlockable badges, private messages with inbox/reply/block flows, and a rich in-game profile menu.
+  </Card>
+  <Card title="Moderation" icon="shield">
+    Bans, mutes, vote-kick with configurable duration and minimum play-time thresholds, admin request handling, ingress-based connection verification, rate limiting, and mod-compatibility checks at the connection layer.
+  </Card>
+  <Card title="Cross-server networking" icon="network-wired">
+    Redis Streams-based RPC and pub/sub backend for broadcasting commands, routing moderation events, delivering Discord channel messages to the correct server instance, and propagating heartbeat/public-address data.
+  </Card>
+  <Card title="Chat translation" icon="language">
+    Configurable translation pipeline with ordered provider fallback. Supports Google Translate and OpenAI-compatible endpoints. Per-server cache (Redis), per-minute metrics, LLM formatting policies, and a `/translation stats` command for runtime visibility.
+  </Card>
+  <Card title="Voting system" icon="check-to-slot">
+    Vote RTV (Rock the Vote), Vote New Wave, and Vote Kick flows with configurable durations, yes/no chat shortcuts, and downstream event publishing so other services can react to successful votes.
+  </Card>
+  <Card title="Map &amp; game management" icon="map">
+    Smart map selector, map rotation with configurable switch delay, map decay scheduling, event-map support, and per-server game-mode awareness (`mini-pvp`, `mini-hexed`, `the-last-standing`, `event`).
+  </Card>
+  <Card title="Command framework" icon="terminal">
+    Cloud-based command system with JLine suggestions, per-server disabled-command lists, disabled-feature toggles, and automated command controller discovery via avaje-inject.
+  </Card>
+  <Card title="Discord integration" icon="discord">
+    Discord link-code generation, Discord-channel chat bridging over Redis, moderation ban/mute log delivery, and a link-code copy action for Mindustry 156.1+ clients.
+  </Card>
+</CardGroup>
+
+## Requirements
+
+| Dependency | Minimum version |
+|---|---|
+| Java SDK | 25 |
+| MongoDB | 6.0 |
+| Redis | any recent stable |
+| Mindustry server | v155.4 (or compatible fork) |
+| FluBundle | 1.3+ (from `https://maven.x-core.org/releases`) |
+
+<Note>
+  Redis is required for the cross-server networking backend. The plugin will not initialize cross-server features (Discord bridge, moderation sync, vote-kick events, RPC) without a reachable Redis instance configured in `config.json`.
+</Note>
+
+## Architecture overview
+
+On startup, `XcorePlugin` builds an [avaje-inject](https://avaje.io/inject/) `BeanScope` from the plugin's class loader, runs atomic database migrations against MongoDB, then wires network hooks (connection filter, discovery handler, chat filter, packet handlers) into the Mindustry runtime. The `BeanScope` is exposed as a public static field so dependent plugins can resolve shared services:
+
+```java
+BeanScope scope = XcorePlugin.container;
+MyService svc = scope.get(MyService.class);
+```
+
+Configuration is split into two files:
+- **`config/mods/XCore/servers.json`** — global settings shared across all server instances (MongoDB connection, vote/moderation tunables, translation providers).
+- **`config/mods/XCore/config.json`** — per-server settings (server identity, Redis URL, player limit, disabled commands/features, translation pipeline).
+
+## License
+
+XCore Plugin is released under the **MIT License**. See the `LICENSE.txt` file in the repository for full terms.
+
+## Get started
+
+<Card title="Installation" icon="arrow-right" href="/installation">
+  Build from source or pull from Maven and deploy the JAR to your Mindustry server.
+</Card>

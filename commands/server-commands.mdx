@@ -1,0 +1,631 @@
+---
+title: "Server Console Commands"
+description: "Commands available from the server console for moderation, maintenance, data management, and badge administration."
+---
+
+<Warning>
+  All commands on this page are **console-only**. They are not available to in-game players and must be entered in the server terminal or via a remote console connection.
+</Warning>
+
+<Info>
+  Player targets in console commands are resolved by **Name**, **UUID**, **IP**, or `#ID` (e.g. `#42`) unless a specific format is noted per command.
+</Info>
+
+---
+
+## Duration Format
+
+Commands that accept a `<period>` argument parse a Java `Duration` string with an optional time-unit suffix. When the suffix is omitted the **default unit** noted per command applies.
+
+| Suffix   | Unit    | Example | Result     |
+| -------- | ------- | ------- | ---------- |
+| `s`      | seconds | `60s`   | 60 seconds |
+| `m`      | minutes | `30m`   | 30 minutes |
+| `h`      | hours   | `12h`   | 12 hours   |
+| `d`      | days    | `7d`    | 7 days     |
+| `w`      | weeks   | `2w`    | 14 days    |
+| `y`      | years   | `1y`    | 365 days   |
+| *(none)* | default | `3`     | see each command |
+
+---
+
+## Moderation
+
+### tempban
+
+Temporarily ban a player by Name, UUID, IP, or `#ID`.
+
+**Usage:** `tempban <target> <period> [reason]`
+
+**Default duration unit:** days
+
+| Argument | Type     | Required | Description                                               |
+| -------- | -------- | -------- | --------------------------------------------------------- |
+| `target` | string   | Yes      | Player Name, UUID, IP, or `#ID` (e.g. `#42`).           |
+| `period` | duration | Yes      | Ban duration (e.g. `7d`, `12h`). Default unit: days.    |
+| `reason` | string   | No       | Optional reason (greedy).                                 |
+
+Resolution logic:
+
+- **`#ID`** — looked up via the internal player database by `#pid`.
+- **UUID** — looked up directly in the Mindustry admin store; the associated IP is used automatically.
+- **IP** — used as-is if no UUID match is found.
+
+**Example:**
+
+```text
+tempban #42 7d Griefing
+tempban 192.168.1.10 1d
+tempban some-uuid-string 12h Harassment
+```
+
+---
+
+### tempunban
+
+Remove a temporary ban by UUID, IP, or `#ID`.
+
+**Usage:** `tempunban <type> <value>`
+
+| Argument | Type   | Required | Description                                        |
+| -------- | ------ | -------- | -------------------------------------------------- |
+| `type`   | string | Yes      | Identifier type: `uuid` (or `uid`), `ip`, or `id`. |
+| `value`  | string | Yes      | The identifier value matching the chosen type.     |
+
+**Example:**
+
+```text
+tempunban uuid some-player-uuid
+tempunban ip 192.168.1.10
+tempunban id 42
+```
+
+---
+
+### tempbans
+
+List all active temporary bans. Optionally filter by Name, UUID, or IP.
+
+**Usage:** `tempbans [search]`
+
+| Argument | Type   | Required | Description                                        |
+| -------- | ------ | -------- | -------------------------------------------------- |
+| `search` | string | No       | Filter string matched against Name, UUID, or IP.  |
+
+Output format per ban:
+
+```text
+Ban: <name> (<uuid>) until <datetime>. Reason: <reason>
+```
+
+**Example:**
+
+```text
+tempbans
+tempbans GrieferXYZ
+tempbans 192.168.1.10
+```
+
+---
+
+### mute
+
+Mute a player by `#ID` or UUID.
+
+**Usage:** `mute <target> <period> [reason]`
+
+**Default duration unit:** hours
+
+| Argument | Type     | Required | Description                                             |
+| -------- | -------- | -------- | ------------------------------------------------------- |
+| `target` | string   | Yes      | Player `#ID` or UUID.                                  |
+| `period` | duration | Yes      | Mute duration (e.g. `2h`, `30m`). Default unit: hours. |
+| `reason` | string   | No       | Optional reason (greedy).                               |
+
+**Example:**
+
+```text
+mute #42 2h Spamming
+mute some-uuid-string 30m
+```
+
+---
+
+### unmute
+
+Remove an active mute from a player by `#ID` or UUID.
+
+**Usage:** `unmute <target>`
+
+| Argument | Type   | Required | Description              |
+| -------- | ------ | -------- | ------------------------ |
+| `target` | string | Yes      | Player `#ID` or UUID.   |
+
+**Example:**
+
+```text
+unmute #42
+unmute some-uuid-string
+```
+
+---
+
+## Player Information
+
+### players
+
+List all currently online players with their admin status, display name, `#pid`, and IP address.
+
+**Usage:** `players`
+
+Output format per player:
+
+```text
+[A] AdminName #5 / IP: 10.0.0.1
+[P] PlayerName #42 / IP: 192.168.1.5
+```
+
+**Example:**
+
+```text
+players
+```
+
+---
+
+### info
+
+Display detailed player information including all historical names, IPs, join count, and UUID.
+
+**Usage:** `info <query>`
+
+| Argument | Type   | Required | Description                                         |
+| -------- | ------ | -------- | --------------------------------------------------- |
+| `query`  | string | Yes      | Player Name, IP, UUID, or `#ID` (e.g. `#42`).     |
+
+**Example:**
+
+```text
+info #42
+info SomePlayer
+info 192.168.1.5
+```
+
+---
+
+## Help
+
+### help
+
+List all registered server commands with descriptions, or query detailed usage for a specific command.
+
+**Usage:** `help` / `help <query>`
+
+| Argument | Type   | Required | Description                                   |
+| -------- | ------ | -------- | --------------------------------------------- |
+| `query`  | string | No       | Command name to look up (greedy).             |
+
+**Example:**
+
+```text
+help
+help tempban
+help badge grant
+```
+
+---
+
+## Maintenance
+
+### exit
+
+Kick all players with a "server restarting" reason and terminate the server process immediately.
+
+**Usage:** `exit`
+
+<Warning>
+  This command does **not** attempt a graceful shutdown sequence beyond kicking players. Use it only when an immediate stop is required.
+</Warning>
+
+**Example:**
+
+```text
+exit
+```
+
+---
+
+### set-team
+
+Move an online player to a specific team by team ID and player ID.
+
+**Usage:** `set-team [id] [pid]`
+
+| Argument | Type    | Required | Description                                      |
+| -------- | ------- | -------- | ------------------------------------------------ |
+| `id`     | integer | No       | Team ID (integer index). Defaults to `0`.       |
+| `pid`    | integer | No       | Internal player ID (`#pid`). Defaults to `-1`. |
+
+**Example:**
+
+```text
+set-team 1 42
+```
+
+---
+
+### set-gamemode
+
+Apply one of Mindustry's built-in game modes to the current game rules and persist the choice.
+
+**Usage:** `set-gamemode [name]`
+
+| Argument | Type   | Required | Description                                                    |
+| -------- | ------ | -------- | -------------------------------------------------------------- |
+| `name`   | string | No       | Game mode name: `survival`, `sandbox`, `attack`, or `pvp`.   |
+
+**Example:**
+
+```text
+set-gamemode pvp
+set-gamemode survival
+```
+
+---
+
+### redis-reload
+
+Disconnect from Redis and immediately reconnect using the current configuration.
+
+**Usage:** `redis-reload`
+
+**Example:**
+
+```text
+redis-reload
+```
+
+---
+
+### transport-reload
+
+Reload the transport backend (Redis or alternative) using the live configuration without restarting the server.
+
+**Usage:** `transport-reload`
+
+**Example:**
+
+```text
+transport-reload
+```
+
+---
+
+### gg-restart
+
+Toggle whether the server automatically restarts when a game-over event fires.
+
+**Usage:** `gg-restart [state]`
+
+| Argument | Type    | Required | Description                              |
+| -------- | ------- | -------- | ---------------------------------------- |
+| `state`  | boolean | No       | `true` to enable, `false` to disable. Defaults to `true`. |
+
+**Example:**
+
+```text
+gg-restart true
+gg-restart false
+```
+
+---
+
+### db-delete-bots
+
+Delete all player records from the database that have less than 2 minutes of play time. A cache-reload event is posted to connected servers after deletion.
+
+**Usage:** `db-delete-bots`
+
+**Example:**
+
+```text
+db-delete-bots
+```
+
+---
+
+### gcmd
+
+Dispatch a console command to one or more remote servers over the socket transport.
+
+**Usage:** `gcmd [--targets <servers>] [--except] -- <command>`
+
+| Argument / Flag | Type   | Required | Description                                                                    |
+| --------------- | ------ | -------- | ------------------------------------------------------------------------------ |
+| `command`       | string | Yes      | The command string to execute on remote server(s) (greedy).                   |
+| `--targets`     | string | No       | Comma-separated list of target server names (e.g. `mini-pvp,mini-hexed`).    |
+| `--except`      | flag   | No       | Invert the target list: execute on all servers *except* those in `--targets`. |
+
+**Example:**
+
+```text
+gcmd -- say Server restart in 5 minutes
+gcmd --targets mini-pvp,mini-hexed -- say PvP event starting
+gcmd --targets mini-lobby --except -- say Maintenance on all non-lobby servers
+```
+
+---
+
+## Runtime Command & Feature Toggles
+
+These commands control which in-game player commands and plugin features are active without requiring a server restart. State is persisted to the XCore config file.
+
+<Note>
+  The commands `disable-cmd`, `enable-cmd`, and `disabled-cmds` are **protected** and cannot themselves be disabled.
+</Note>
+
+### disable-cmd
+
+Disable a command or command path at runtime. Players who attempt to use it will be silently blocked.
+
+**Usage:** `disable-cmd <command>`
+
+| Argument  | Type   | Required | Description                                                        |
+| --------- | ------ | -------- | ------------------------------------------------------------------ |
+| `command` | string | Yes      | Command name or path (e.g. `rtv`, `vote`, `badge set`) (greedy). |
+
+**Example:**
+
+```text
+disable-cmd rtv
+disable-cmd badge set
+```
+
+---
+
+### enable-cmd
+
+Re-enable a previously disabled command.
+
+**Usage:** `enable-cmd <command>`
+
+| Argument  | Type   | Required | Description                       |
+| --------- | ------ | -------- | --------------------------------- |
+| `command` | string | Yes      | Command name or path (greedy).   |
+
+**Example:**
+
+```text
+enable-cmd rtv
+enable-cmd badge set
+```
+
+---
+
+### disabled-cmds
+
+List all currently disabled commands.
+
+**Usage:** `disabled-cmds`
+
+**Example:**
+
+```text
+disabled-cmds
+```
+
+---
+
+### disable-feature
+
+Disable a plugin feature by its key at runtime.
+
+**Usage:** `disable-feature <feature>`
+
+| Argument  | Type   | Required | Description                                                    |
+| --------- | ------ | -------- | -------------------------------------------------------------- |
+| `feature` | string | Yes      | Feature key (e.g. `rtv`). Run the command with an unknown key to see all available features. |
+
+**Example:**
+
+```text
+disable-feature rtv
+```
+
+---
+
+### enable-feature
+
+Re-enable a disabled plugin feature.
+
+**Usage:** `enable-feature <feature>`
+
+| Argument  | Type   | Required | Description            |
+| --------- | ------ | -------- | ---------------------- |
+| `feature` | string | Yes      | Feature key.           |
+
+**Example:**
+
+```text
+enable-feature rtv
+```
+
+---
+
+### disabled-features
+
+List all currently disabled features.
+
+**Usage:** `disabled-features`
+
+**Example:**
+
+```text
+disabled-features
+```
+
+---
+
+## Data & Configuration
+
+### xconfig
+
+Display or modify the live XCore configuration.
+
+**Usage (view):** `xconfig`
+
+**Usage (edit):** `xconfig <field> <value>`
+
+| Argument | Type   | Required | Description                                           |
+| -------- | ------ | -------- | ----------------------------------------------------- |
+| `field`  | string | No       | Top-level JSON field name in the config.             |
+| `value`  | string | No       | New value. Type is inferred from the existing field. |
+
+Changes are persisted to the config file immediately.
+
+**Example:**
+
+```text
+xconfig
+xconfig server mini-pvp
+xconfig translation.enabled false
+```
+
+<Warning>
+  Only top-level fields present in the `Config` class can be modified. Attempting to set a non-existent field prints an error.
+</Warning>
+
+---
+
+### edit-data
+
+Directly modify a field in a player's database record. Supports `string`, `boolean`, `long`, and `double` fields.
+
+**Usage:** `edit-data <player> <field> <value>`
+
+| Argument | Type   | Required | Description                                            |
+| -------- | ------ | -------- | ------------------------------------------------------ |
+| `player` | string | Yes      | Player Name, `#ID`, or UUID.                          |
+| `field`  | string | Yes      | Field name in the `PlayerData` model.                 |
+| `value`  | string | Yes      | New value (greedy). Parsed to the field's actual type. |
+
+**Example:**
+
+```text
+edit-data #42 pvpRating 1500
+edit-data SomePlayer hexedPoints 250
+```
+
+<Warning>
+  This command bypasses all game logic and writes directly to the database. Use with caution.
+</Warning>
+
+---
+
+### dbinfo
+
+Display the raw JSON database record for a player.
+
+**Usage:** `dbinfo <player>`
+
+| Argument | Type   | Required | Description                   |
+| -------- | ------ | -------- | ----------------------------- |
+| `player` | string | Yes      | Player Name, `#ID`, or UUID. |
+
+**Example:**
+
+```text
+dbinfo #42
+dbinfo SomePlayer
+```
+
+---
+
+## Badge Administration
+
+### badge grant
+
+Grant a badge to a player. The badge is added to their unlocked badge inventory.
+
+**Usage:** `badge grant <player> <id>`
+
+| Argument | Type   | Required | Description                                        |
+| -------- | ------ | -------- | -------------------------------------------------- |
+| `player` | string | Yes      | Player Name, `#ID`, or UUID.                      |
+| `id`     | string | Yes      | Badge identifier (e.g. `veteran`).                |
+
+**Example:**
+
+```text
+badge grant #42 veteran
+badge grant SomePlayer contributor
+```
+
+<Note>
+  System-only badges (those with `badge.system() == true`) cannot be granted through this command.
+</Note>
+
+---
+
+### badge revoke
+
+Remove a badge from a player's unlocked inventory. If the badge was their active badge it is automatically cleared.
+
+**Usage:** `badge revoke <player> <id>`
+
+| Argument | Type   | Required | Description                   |
+| -------- | ------ | -------- | ----------------------------- |
+| `player` | string | Yes      | Player Name, `#ID`, or UUID. |
+| `id`     | string | Yes      | Badge identifier.             |
+
+**Example:**
+
+```text
+badge revoke #42 veteran
+```
+
+---
+
+### badge list
+
+List all badges that can be granted or revoked via console commands.
+
+**Usage:** `badge list`
+
+**Example:**
+
+```text
+badge list
+```
+
+---
+
+## Translation Metrics
+
+### trstats
+
+Display translation pipeline metrics including cache hit ratio, per-provider statistics, and the current-minute request rate.
+
+**Usage:** `trstats`
+
+**Example:**
+
+```text
+trstats
+```
+
+Sample output:
+
+```text
+Translation stats for server 'mini-pvp':
+ Pipeline enabled: true
+ Pipeline: google -> openai
+ Totals:
+  requests_total=1240 current_minute=12
+  cache_hits_total=900 cache_misses_total=340 cache_hit_ratio=72.58%
+  unsupported_language_total=5 original_message_fallback_total=2
+  all_failed_total=1 unavailable_total=0
+ Providers:
+  - google [type=google enabled=true] attempts=900 success=870 failure=30 current_minute=10 avg_latency=145.30ms
+  - openai [type=openai enabled=true] attempts=340 success=320 failure=20 current_minute=2 avg_latency=210.50ms
+```

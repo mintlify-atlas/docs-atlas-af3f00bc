@@ -1,0 +1,515 @@
+---
+title: "Player Commands"
+description: "In-game commands available to all players on XCore servers."
+---
+
+<Info>
+  All commands on this page are available to every connected player. No special permission is required unless noted otherwise.
+</Info>
+
+## Profile & Stats
+
+### /player
+
+View a player profile and statistics card.
+
+**Usage:** `/player [id]` — aliases: `/stats`, `/player-statistics`
+
+**Permission:** player
+
+| Argument | Type    | Required | Description                                             |
+| -------- | ------- | -------- | ------------------------------------------------------- |
+| `id`     | integer | No       | Internal player ID (`#pid`). Omit to view your own profile. |
+
+**Example:**
+
+```text
+/player
+/stats 42
+```
+
+---
+
+### /settings
+
+Open the settings menu for a player profile.
+
+**Usage:** `/settings [id]`
+
+**Permission:** player
+
+| Argument | Type    | Required | Description                                              |
+| -------- | ------- | -------- | -------------------------------------------------------- |
+| `id`     | integer | No       | Internal player ID (`#pid`). Omit to open your own settings. |
+
+**Example:**
+
+```text
+/settings
+/settings 42
+```
+
+---
+
+### /observer
+
+Enter spectator mode immediately. Your current unit is cleared and you are moved to the `derelict` team.
+
+**Usage:** `/observer`
+
+**Permission:** player
+
+**Example:**
+
+```text
+/observer
+```
+
+<Note>
+  On Hexed servers use `/spectate` instead, which properly kills your team before switching you to spectator mode.
+</Note>
+
+---
+
+### /lb
+
+Toggle the leaderboard overlay on or off. Your preference is persisted across sessions.
+
+**Usage:** `/lb`
+
+**Permission:** player
+
+**Example:**
+
+```text
+/lb
+```
+
+---
+
+### /top
+
+Display the top-ranked players. The ranking column depends on the server mode:
+
+- **PvP servers** — sorted by PvP rating.
+- **Hexed servers** — sorted by Hexed rank and points.
+
+**Usage:** `/top`
+
+**Permission:** player
+
+**Example:**
+
+```text
+/top
+```
+
+---
+
+## Badges
+
+### /badge
+
+Open the badge browser to view all of your unlocked badges.
+
+**Usage:** `/badge`
+
+**Permission:** player
+
+**Example:**
+
+```text
+/badge
+```
+
+---
+
+### /badge set
+
+Equip an unlocked badge to display beside your name.
+
+**Usage:** `/badge set <id>`
+
+**Permission:** player
+
+| Argument | Type   | Required | Description                      |
+| -------- | ------ | -------- | -------------------------------- |
+| `id`     | string | Yes      | Badge identifier (e.g. `veteran`). |
+
+**Example:**
+
+```text
+/badge set veteran
+```
+
+<Warning>
+  You can only equip badges you have already unlocked. System-only badges cannot be set manually.
+</Warning>
+
+---
+
+### /badge clear
+
+Remove your currently active badge.
+
+**Usage:** `/badge clear`
+
+**Permission:** player
+
+**Example:**
+
+```text
+/badge clear
+```
+
+---
+
+## Help & Information
+
+### /help
+
+Open the paginated help menu.
+
+**Usage:** `/help [page]`
+
+**Permission:** player
+
+| Argument | Type    | Required | Description               |
+| -------- | ------- | -------- | ------------------------- |
+| `page`   | integer | No       | Page number. Defaults to `1`. |
+
+**Example:**
+
+```text
+/help
+/help 2
+```
+
+---
+
+### /main
+
+Open the main XCore information panel.
+
+**Usage:** `/main` — aliases: `/xcore`, `/m`
+
+**Permission:** player
+
+**Example:**
+
+```text
+/main
+/xcore
+```
+
+---
+
+### /information
+
+Open the server information panel.
+
+**Usage:** `/information` — alias: `/info`
+
+**Permission:** player
+
+**Example:**
+
+```text
+/information
+/info
+```
+
+---
+
+## Map Commands
+
+### /map
+
+View statistics for the current map or for a named map.
+
+**Usage:** `/map [map]` — aliases: `/map-stats`, `/map-statistics`
+
+**Permission:** player
+
+| Argument | Type   | Required | Description                                             |
+| -------- | ------ | -------- | ------------------------------------------------------- |
+| `map`    | string | No       | Map name. Omit to view stats for the currently running map. |
+
+**Example:**
+
+```text
+/map
+/map "Ancient Battlefield"
+```
+
+---
+
+### /maps
+
+Browse the full map list in a paginated menu.
+
+**Usage:** `/maps [page]` — alias: `/map-ui`
+
+**Permission:** player
+
+| Argument | Type    | Required | Description               |
+| -------- | ------- | -------- | ------------------------- |
+| `page`   | integer | No       | Page number. Defaults to `1`. |
+
+**Example:**
+
+```text
+/maps
+/maps 3
+```
+
+---
+
+### /rtv
+
+Start or join a Rock-the-Vote session to change the current map. Optionally nominate a specific map.
+
+**Usage:** `/rtv [map]`
+
+**Permission:** player
+
+| Argument | Type   | Required | Description                                              |
+| -------- | ------ | -------- | -------------------------------------------------------- |
+| `map`    | string | No       | Target map name. Omit to let the server pick the next map automatically. |
+
+**Example:**
+
+```text
+/rtv
+/rtv "Frozen Forest"
+```
+
+---
+
+### /vnw
+
+Start a vote to skip to the next wave.
+
+**Usage:** `/vnw`
+
+**Permission:** player
+
+**Example:**
+
+```text
+/vnw
+```
+
+---
+
+### /like
+
+Give a thumbs-up to the current map.
+
+**Usage:** `/like` — alias: `/+`
+
+**Permission:** player
+
+**Example:**
+
+```text
+/like
+```
+
+---
+
+### /dislike
+
+Give a thumbs-down to the current map.
+
+**Usage:** `/dislike` — alias: `/-`
+
+**Permission:** player
+
+**Example:**
+
+```text
+/dislike
+```
+
+---
+
+## Hexed Commands
+
+<Info>
+  The following commands are only meaningful on Hexed game-mode servers.
+</Info>
+
+### /spectate
+
+Kill your current team and enter spectator mode on Hexed servers.
+
+**Usage:** `/spectate`
+
+**Permission:** player
+
+**Example:**
+
+```text
+/spectate
+```
+
+---
+
+### /rank
+
+Display the Hexed rank and point total for yourself or another player.
+
+**Usage:** `/rank [player]`
+
+**Permission:** player
+
+| Argument | Type   | Required | Description                                     |
+| -------- | ------ | -------- | ----------------------------------------------- |
+| `player` | Player | No       | Target player name. Omit to view your own rank. |
+
+**Example:**
+
+```text
+/rank
+/rank SomePlayer
+```
+
+---
+
+### /ranks
+
+List all Hexed ranks with their point thresholds.
+
+**Usage:** `/ranks`
+
+**Permission:** player
+
+**Example:**
+
+```text
+/ranks
+```
+
+---
+
+### /ai
+
+Control the AI behaviour of your Hexed units.
+
+**Usage:** `/ai <state>`
+
+**Permission:** player
+
+| Argument | Type   | Required | Description                                             |
+| -------- | ------ | -------- | ------------------------------------------------------- |
+| `state`  | string | Yes      | `attack` (or `a`) to attack, `idle` (or `i`) to stop. |
+
+**Example:**
+
+```text
+/ai attack
+/ai idle
+```
+
+<Warning>
+  This command has no effect while you are in spectator mode (`derelict` team).
+</Warning>
+
+---
+
+## Events
+
+### /event
+
+Open the current active event panel.
+
+**Usage:** `/event`
+
+**Permission:** player
+
+**Example:**
+
+```text
+/event
+```
+
+---
+
+### /events
+
+Browse past and upcoming events in a paginated list.
+
+**Usage:** `/events [page]`
+
+**Permission:** player
+
+| Argument | Type    | Required | Description               |
+| -------- | ------- | -------- | ------------------------- |
+| `page`   | integer | No       | Page number. Defaults to `1`. |
+
+**Example:**
+
+```text
+/events
+/events 2
+```
+
+---
+
+## Admin-Only Player Commands
+
+### /set-team
+
+Move a player to a specific team.
+
+**Usage:** `/set-team [id] [pid]`
+
+**Permission:** admin
+
+| Argument | Type    | Required | Description                                                        |
+| -------- | ------- | -------- | ------------------------------------------------------------------ |
+| `id`     | integer | No       | Team ID. Omit to use the issuing admin's current team.            |
+| `pid`    | integer | No       | Internal player ID (`#pid`). Omit to move yourself.              |
+
+**Example:**
+
+```text
+/set-team 1 42
+/set-team
+```
+
+### /artv
+
+Force a map change immediately, bypassing the vote threshold (admin version of `/rtv`).
+
+**Usage:** `/artv [map]`
+
+**Permission:** admin
+
+| Argument | Type   | Required | Description                                                              |
+| -------- | ------ | -------- | ------------------------------------------------------------------------ |
+| `map`    | string | No       | Target map name. Omit to let the server pick the next map automatically. |
+
+**Example:**
+
+```text
+/artv
+/artv "Desolate Expanse"
+```
+
+---
+
+### /avnw
+
+Force the next wave immediately, bypassing the vote threshold (admin version of `/vnw`).
+
+**Usage:** `/avnw`
+
+**Permission:** admin
+
+**Example:**
+
+```text
+/avnw
+```

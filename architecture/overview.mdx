@@ -1,0 +1,140 @@
+---
+title: Plugin Architecture Overview
+description: How XCore bootstraps, wires its dependency injection container, and exposes subsystems to dependent plugins.
+---
+
+## Entry Point
+
+XCore is a standard Mindustry server plugin. The `plugin.json` manifest (generated at build time from `build.gradle.kts`) declares the entry point:
+
+```
+mainClass = org.xcore.plugin.XcorePlugin
+```
+
+`XcorePlugin` extends `mindustry.mod.Plugin` and receives control through the `init()` lifecycle method called by the Mindustry loader.
+
+## Bootstrapping
+
+All initialization happens inside `XcorePlugin.init()`. The steps, in order:
+
+1. **Build the DI container** — `BeanScope` is constructed using avaje-inject. All `@Singleton`-annotated beans are discovered and wired automatically.
+2. **Run database migrations** — `MigrationService.run()` is called. If migrations fail the plugin logs a critical error and **aborts** — nothing else initializes.
+3. **Start the map decay scheduler** — `MapDataRepository.checkMapDecay()` runs immediately and then every hour via `Timer.schedule`.
+4. **Install network hooks** — `NetEventService` and `ServerDiscoveryService` are wired into the Mindustry net stack: connect filter, discovery handler, chat filter, and packet handlers.
+
+```java
+public class XcorePlugin extends Plugin {
+    public static BeanScope container; // for dependent plugins
+
+    @Override
+    public void init() {
+        PLog.info("Plugin started.");
+
+        container = BeanScope.builder()
+                .classLoader(getClass().getClassLoader())
+                .build();
+
+        var migrationService = container.get(MigrationService.class);
+        if (!migrationService.run()) {
+            PLog.err("CRITICAL: Database migrations failed! Plugin initialization stopped.");
+            return;
+        }
+
+        var mapDataRepository = container.get(MapDataRepository.class);
+        initMapDecayScheduler(mapDataRepository);
+
+        var mapSelector = container.get(SmartMapSelector.class);
+        Reflect.set(Vars.maps, "shuffler", mapSelector);
+
+        var netEvents = container.get(NetEventService.class);
+        var discoveryService = container.get(ServerDiscoveryService.class);
+        initNetworkHooks(netEvents, discoveryService);
+
+        PLog.info("Plugin initialized.");
+    }
+}
+```
+
+## Dependency Injection
+
+XCore uses [avaje-inject](https://avaje.io/inject/) for compile-time dependency injection. The annotation processor generates wiring code at build time — there is no runtime classpath scanning.
+
+Key points:
+
+- Every managed bean is annotated `@Singleton` (Jakarta CDI annotation).
+- The `BeanScope` is built once in `init()` and stored in `XcorePlugin.container`.
+- Beans that need post-construction logic use `@PostConstruct`; teardown uses `@PreDestroy` (e.g. `NetworkService` connects/disconnects Redis this way).
+- `PluginState` is a simple singleton holding mutable server state (`gameStartTime`, `restartOnGameOver`) shared across beans without needing direct wiring.
+
+## Key Subsystems
+
+<CardGroup cols={2}>
+  <Card title="Database (MongoDB)" icon="database">
+    Persistent storage for player profiles, bans, mutes, maps, games, events, and private messages. Uses the MongoDB sync driver. Repositories follow a one-class-per-collection pattern extending `DataRepository<T>`. A versioned migration system (`MigrationService`) runs on startup.
+  </Card>
+  <Card title="Networking (Redis)" icon="wifi">
+    Cross-server event bus backed by Redis Streams. `NetworkService.post()` publishes events (bans, chat, moderation actions) that fan out to all servers. Consumer groups ensure each server processes events exactly once. Includes a dead-letter queue (DLQ) for failed deliveries and an optional reclaim loop for stalled messages.
+  </Card>
+  <Card title="Command Framework (Cloud)" icon="terminal">
+    Player and console commands are registered via the [Cloud](https://github.com/Incendo/cloud) command framework for Mindustry. Commands can be disabled per-server via the `disabledCommands` set in `Config`. The `consoleEnabled` flag controls whether the interactive console is active.
+  </Card>
+  <Card title="Localization (FluBundle)" icon="language">
+    Player-facing strings are managed through FluBundle (Fluent localization). Each player's `local_language` preference is persisted in MongoDB and used to select the correct translation bundle at message-send time.
+  </Card>
+  <Card title="Sessions & Player State" icon="user">
+    On connect, each player's `PlayerData` is loaded from MongoDB and cached in memory for the duration of the session. `PluginState` tracks global server state (game start time, restart flag). The `ServerDiscoveryService` publishes heartbeats so other services can discover which servers are online.
+  </Card>
+  <Card title="Moderation" icon="shield">
+    Bans and mutes are stored in dedicated MongoDB collections and broadcast over Redis so every server enforces them in real time. `NetEventService` applies ban checks on the connect filter. Vote-kick events are also routed through Redis, making cross-server moderation possible.
+  </Card>
+</CardGroup>
+
+## Using the Container from a Dependent Plugin
+
+`XcorePlugin.container` is `public static`, making it accessible from any plugin that loads after XCore. Dependent plugins should access it after XCore's `init()` has completed (Mindustry calls `init()` in load order).
+
+```java
+import org.xcore.plugin.XcorePlugin;
+import org.xcore.plugin.service.NetworkService;
+import org.xcore.plugin.database.repository.PlayerDataRepository;
+import mindustry.mod.Plugin;
+
+public class MyPlugin extends Plugin {
+
+    private NetworkService networkService;
+    private PlayerDataRepository playerRepo;
+
+    @Override
+    public void init() {
+        var container = XcorePlugin.container;
+
+        networkService = container.get(NetworkService.class);
+        playerRepo     = container.get(PlayerDataRepository.class);
+
+        // Subscribe to ban events broadcast from any server
+        networkService.subscribe(BanData.class, ban -> {
+            // enforce ban locally
+        });
+    }
+}
+```
+
+<Note>
+  Declare XCore as a dependency in your plugin's `plugin.json` so Mindustry guarantees load order and `XcorePlugin.container` is non-null by the time your `init()` runs.
+</Note>
+
+## Build Configuration
+
+The plugin is built with [Toxopid](https://github.com/xpdustry/toxopid) and the Shadow JAR plugin. All runtime dependencies are shaded into a single fat JAR. The relevant dependency declarations from `build.gradle.kts`:
+
+```kotlin
+implementation(libs.avaje.inject)       // DI runtime
+implementation(libs.mongodb.sync)       // MongoDB driver
+implementation(libs.lettuce)            // Redis client
+implementation(libs.cloud.mindustry)    // Command framework
+implementation(libs.flubundle)          // Localization
+implementation(libs.gson)               // JSON serialization
+annotationProcessor(libs.avaje.inject.generator) // compile-time wiring
+```
+
+The plugin targets Java 25 (`JavaLanguageVersion.of(25)`) and the `SERVER` Mindustry platform only.

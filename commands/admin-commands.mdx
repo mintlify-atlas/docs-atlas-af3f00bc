@@ -1,0 +1,245 @@
+---
+title: "Admin Commands"
+description: "In-game moderation and team-management commands available to players with the admin permission."
+---
+
+<Warning>
+  All commands on this page require the `admin` permission. Using them without sufficient privileges will result in an access-denied error.
+</Warning>
+
+## Duration Format
+
+Many moderation commands accept a `<period>` argument. The value is parsed as a Java `Duration` with an optional time-unit suffix. When the suffix is omitted, the **default unit** noted per command is used.
+
+| Suffix | Unit    | Example  | Result         |
+| ------ | ------- | -------- | -------------- |
+| `s`    | seconds | `120s`   | 120 seconds    |
+| `m`    | minutes | `30m`    | 30 minutes     |
+| `h`    | hours   | `12h`    | 12 hours       |
+| `d`    | days    | `7d`     | 7 days         |
+| `w`    | weeks   | `2w`     | 14 days        |
+| `y`    | years   | `1y`     | 365 days       |
+| *(none)* | default | `3`   | see each command |
+
+---
+
+## Ban Management
+
+### /ban
+
+Temporarily ban a player by their internal player ID (`#pid`).
+
+**Usage:** `/ban <id> <period> [reason]`
+
+**Permission:** admin
+
+**Default duration unit:** days
+
+| Argument | Type     | Required | Description                                                |
+| -------- | -------- | -------- | ---------------------------------------------------------- |
+| `id`     | integer  | Yes      | Internal player ID (`#pid`).                              |
+| `period` | duration | Yes      | Ban duration (e.g. `7d`, `12h`). Default unit: days.     |
+| `reason` | string   | No       | Optional ban reason shown to the player (greedy).         |
+
+**Example:**
+
+```text
+/ban 42 7d Repeated griefing
+/ban 17 1d
+```
+
+<Note>
+  The ban is recorded in the database and the player is kicked immediately if they are online. Discord is notified when a linked `discordId` is present on the issuing admin's account.
+</Note>
+
+---
+
+### /unban
+
+Lift an active ban for a player by their internal player ID.
+
+**Usage:** `/unban <id>`
+
+**Permission:** admin
+
+| Argument | Type    | Required | Description                   |
+| -------- | ------- | -------- | ----------------------------- |
+| `id`     | integer | Yes      | Internal player ID (`#pid`). |
+
+**Example:**
+
+```text
+/unban 42
+```
+
+---
+
+## Mute Management
+
+### /mute
+
+Mute a player, preventing them from sending chat messages and private messages for the specified duration.
+
+**Usage:** `/mute <id> <period> [reason]`
+
+**Permission:** admin
+
+**Default duration unit:** hours
+
+| Argument | Type     | Required | Description                                              |
+| -------- | -------- | -------- | -------------------------------------------------------- |
+| `id`     | integer  | Yes      | Internal player ID (`#pid`).                            |
+| `period` | duration | Yes      | Mute duration (e.g. `2h`, `30m`). Default unit: hours. |
+| `reason` | string   | No       | Optional reason shown to the muted player (greedy).    |
+
+**Example:**
+
+```text
+/mute 42 2h Spamming team chat
+/mute 17 30m
+```
+
+<Tip>
+  If the target player is currently online, they receive a notification message that includes the admin's colored name, the reason, and the duration.
+</Tip>
+
+---
+
+### /unmute
+
+Remove an active mute from a player.
+
+**Usage:** `/unmute <id>`
+
+**Permission:** admin
+
+| Argument | Type    | Required | Description                   |
+| -------- | ------- | -------- | ----------------------------- |
+| `id`     | integer | Yes      | Internal player ID (`#pid`). |
+
+**Example:**
+
+```text
+/unmute 42
+```
+
+---
+
+## Team Management
+
+### /set-team
+
+Move a player to a specified team. Both arguments are optional; omitting them applies the admin's own current team to themselves.
+
+**Usage:** `/set-team [id] [pid]`
+
+**Permission:** admin
+
+| Argument | Type    | Required | Description                                                        |
+| -------- | ------- | -------- | ------------------------------------------------------------------ |
+| `id`     | integer | No       | Team ID (integer index). Omit to use the admin's current team.   |
+| `pid`    | integer | No       | Internal player ID (`#pid`) of the target. Omit to target yourself. |
+
+**Example:**
+
+```text
+/set-team 1 42
+/set-team 2
+/set-team
+```
+
+<Note>
+  The target player's current unit is cleared (`clearUnit()`) before being assigned to the new team.
+</Note>
+
+---
+
+## Map Voting (Admin Overrides)
+
+### /artv
+
+Force a map rotation immediately, bypassing the normal vote-threshold requirement.
+
+**Usage:** `/artv [map]`
+
+**Permission:** admin
+
+| Argument | Type   | Required | Description                                                              |
+| -------- | ------ | -------- | ------------------------------------------------------------------------ |
+| `map`    | string | No       | Target map name. Omit to let the server pick the next map automatically. |
+
+**Example:**
+
+```text
+/artv
+/artv "Frozen Forest"
+```
+
+---
+
+### /avnw
+
+Force the next wave immediately, bypassing the vote threshold.
+
+**Usage:** `/avnw`
+
+**Permission:** admin
+
+**Example:**
+
+```text
+/avnw
+```
+
+---
+
+## Authentication
+
+### /login
+
+Authenticate as an admin in-game using a password. On first use the password you enter becomes your admin password. After entering the correct password, Discord approval may be required if the server uses Discord-based admin access control.
+
+**Usage:** `/login <password>`
+
+**Permission:** player (any player can attempt; grants admin if approved)
+
+| Argument   | Type   | Required | Description                                      |
+| ---------- | ------ | -------- | ------------------------------------------------ |
+| `password` | string | Yes      | Your admin password (minimum 4 characters).     |
+
+**Example:**
+
+```text
+/login mySecurePassword
+```
+
+<Note>
+  If the server requires Discord admin approval, a successful password entry sends an approval request to Discord. Admin status is not granted until the request is approved.
+</Note>
+
+---
+
+### /logout
+
+Revoke your own in-game admin status.
+
+**Usage:** `/logout`
+
+**Permission:** admin
+
+**Example:**
+
+```text
+/logout
+```
+
+---
+
+## Error Reference
+
+Moderation commands share a common error-reporting path. The following messages may appear in response to any ban/unban/mute/unmute command:
+
+| Error key                  | Meaning                                              |
+| -------------------------- | ---------------------------------------------------- |
+| `error-player-not-found`   | No player matched the provided ID.                   |
+| `error-processing-request` | An unexpected internal error occurred.               |

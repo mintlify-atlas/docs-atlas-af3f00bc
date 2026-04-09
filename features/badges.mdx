@@ -1,0 +1,106 @@
+---
+title: Badges
+description: Visual tags displayed in chat and player profiles that recognize player contributions and roles.
+---
+
+Badges are colored icon tags rendered next to a player's name in chat and their profile. Each badge communicates a specific role or achievement — from core staff designations to community contributions. Players can hold multiple badges but display only one at a time as their **active badge**.
+
+## Badge types
+
+<CardGroup cols={2}>
+  <Card title="SYSTEM" icon="gear">
+    Automatically assigned based on server state. Cannot be granted or revoked manually. The **ADMIN** badge is the only current SYSTEM badge and is applied whenever the player has admin privileges.
+  </Card>
+  <Card title="MANUAL" icon="tag">
+    Granted and revoked by server administrators via console commands. Once a player receives a MANUAL badge it is added to their **unlocked badges** inventory, and they can activate it themselves.
+  </Card>
+</CardGroup>
+
+## Badge reference
+
+| Badge | ID | Type | Player-selectable |
+|---|---|---|---|
+| Admin | `admin` | SYSTEM | No |
+| Developer | `developer` | MANUAL | Yes |
+| Translator | `translator` | MANUAL | Yes |
+| Map Maker | `map-maker` | MANUAL | Yes |
+| Contributor | `contributor` | MANUAL | Yes |
+| Bug Finder | `bug-finder` | MANUAL | Yes |
+| Event Winner | `event-winner` | MANUAL | Yes |
+| Veteran | `veteran` | MANUAL | Yes |
+
+<Note>
+  The `admin` badge is the only SYSTEM badge. It is non-selectable and cannot be granted or revoked through admin commands. Attempting to `badge grant` or `badge revoke` a SYSTEM badge will produce an error.
+</Note>
+
+## Player commands
+
+These commands are available to all connected players.
+
+### `/badge`
+
+Opens the badge selection menu, showing all badges currently in the player's unlocked inventory.
+
+### `/badge set <id>`
+
+Activates a badge by its ID. The badge must be both **selectable** and already **unlocked** for the player. If either condition is not met, an error message is returned.
+
+```
+/badge set developer
+/badge set map-maker
+```
+
+### `/badge clear`
+
+Removes the active badge, displaying the player's name without any badge tag.
+
+```
+/badge clear
+```
+
+<Tip>
+  Badge IDs are case-insensitive and trimmed. Both `Map-Maker` and `map-maker` resolve to the same badge.
+</Tip>
+
+## Admin / server commands
+
+The following commands are run from the **server console** and manage players' badge inventories.
+
+### `badge grant <player> <id>`
+
+Adds a MANUAL badge to the specified player's unlocked inventory. If the player is currently online their display is refreshed immediately and the change is broadcast to all servers via the network event bus.
+
+```
+badge grant PlayerName developer
+badge grant #42 event-winner
+```
+
+The `<player>` argument accepts:
+- A player's **nickname** or **custom nickname** (matched case-insensitively against online players)
+- A player's **UUID**
+- A **PID** prefixed with `#` (e.g. `#42`), which also resolves offline players from the database
+
+### `badge revoke <player> <id>`
+
+Removes a MANUAL badge from the player's unlocked inventory. If the revoked badge is the player's current active badge, the active badge is also cleared.
+
+```
+badge revoke PlayerName contributor
+badge revoke #7 veteran
+```
+
+### `badge list`
+
+Prints all grantable MANUAL badges and their IDs to the console log.
+
+```
+badge list
+```
+
+<Note>
+  SYSTEM badges (`admin`) cannot be passed to `badge grant` or `badge revoke`. The server will log an error and take no action.
+</Note>
+
+## Badge spoofing protection
+
+The active badge displayed for a player is always resolved from their **server-side session data**, never from client input. Players cannot inject arbitrary badge tags into their display name. When a badge is set or cleared, a `PlayerActiveBadgeChanged` socket event is posted so every server in the network stays in sync.

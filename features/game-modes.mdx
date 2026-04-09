@@ -1,0 +1,219 @@
+---
+title: Game Modes
+description: Configuring and understanding XCore's four server types — mini-pvp, mini-hexed, the-last-standing, and event.
+---
+
+XCore supports four distinct server types, each enabling a different set of game logic. The active mode is determined by the `server` field in `config.json`. Services self-activate by checking `Config.isMiniPvP()`, `Config.isMiniHexed()`, etc. on startup — no other changes are needed.
+
+## Configuring the Server Type
+
+Set the `server` field in your server's `config.json`:
+
+```json
+{
+  "server": "mini-pvp"
+}
+```
+
+| Value | Mode |
+|-------|------|
+| `mini-pvp` | PvP with persistent rating |
+| `mini-hexed` | Hex-capture with rank progression |
+| `the-last-standing` | Survival against AI with cooperative teams |
+| `event` | Rotating event maps with player voting |
+
+<Note>
+  The `server` value must match exactly. Typos cause all mode-specific services to remain inactive.
+</Note>
+
+## mini-pvp
+
+`MiniPvP` activates when `config.isMiniPvP()` returns `true`.
+
+### PvP Rating System
+
+Each player has a `pvpRating` integer stored in MongoDB (`pvp_rating`, default `0`). Ratings change at game-over events:
+
+**Win** (`GameOverEvent`, winning team):
+
+```
+increase = clamp(150 / (teamSize + 1), 10, 60)
+```
+
+Each winner's rating is increased by this amount. Larger teams earn fewer points per player.
+
+**Loss** (when the team's last core is destroyed):
+
+```
+reduction = clamp(25 × (allies / enemies), 5, 50)
+```
+
+Each loser's rating is reduced proportionally. Being outnumbered reduces the penalty.
+
+Ratings are floored at 0 — a player's rating will never go negative.
+
+Defeated players are moved to `Team.derelict` (spectator) for the remainder of the game. They receive a notification on reconnect.
+
+### In-Game Leaderboard
+
+While playing on `mini-pvp`, an in-game leaderboard shows the top 10 players by `pvpRating` from the current session cache, refreshed via `LeaderboardService`.
+
+### `/top` Command
+
+Displays the top 10 players globally (from MongoDB) sorted by `pvp_rating` descending.
+
+---
+
+## mini-hexed
+
+`MiniHexedService` activates when `config.isMiniHexed()` returns `true`.
+
+Each player joins on an isolated team and expands their territory by capturing hexagonal core tiles. The game ends when a player controls all green cores or when the countdown timer reaches zero.
+
+### Game Rules Applied at Start
+
+On each `PlayEvent`, the following rules are enforced:
+
+- Several unit types (risso, minke, bryde, sei, omura, retusa, oxynoe, cyerce, aegires, navanax, crawler, atrax, spiroct) are set to **flying**
+- `canGameOver = false` (game end is managed by `MiniHexedService`)
+- `waves = false`
+- `pvp = true`
+- `pvpAutoPause = false`
+
+### Win Condition
+
+The game tracks a countdown (`winScore`, starting at 2400 seconds) that decrements every second when players are online. A player also wins immediately if they control all detected green cores.
+
+The game ends by calling `gameDataService.finishGame(...)` and reloading the map after 10 seconds.
+
+### Rank Progression
+
+Players earn ranks by winning games. Points accumulate in `hexedPoints`; when the threshold for the next rank is met, the rank advances and points reset to 0.
+
+<Note>
+  A win only counts toward rank progression if the winner competed against at least one player of an equal or higher rank (or there were multiple players at the same rank in the session).
+</Note>
+
+| Rank | `HexedRank` enum | Wins required to advance | Display tag |
+|------|-----------------|--------------------------|-------------|
+| Newbie | `newbie` | — (starting rank) | *(none)* |
+| Regular | `regular` | 3 | `[cyan]<[accent]♧[cyan]>[]` |
+| Advanced | `advanced` | 10 | `[cyan]<[accent]♭[cyan]>[]` |
+| Veteran | `veteran` | 20 | `[cyan]<[accent]♬[cyan]>[]` |
+| Davastator | `davastator` | 25 | `[cyan]<[accent]🁄[cyan]>[]` |
+| The Legend | `the_legend` | 30 | `[cyan]<[accent]🁆[cyan]>[]` |
+
+Rank tags are rendered as part of the player's display name via `PlayerDisplayService.resolveHexedTag(data)`. The tag appears between any badges and the player's base name.
+
+### HexMember Lifecycle
+
+Each connected player is tracked as a `HexMember`:
+
+- On join: a random unused team (ID > 5) is assigned. The starting base schematic is placed at the nearest free spawn core.
+- On leave: a 120-second grace timer starts. If the player reconnects before it fires, the team is restored. If not, `MiniHexedService.killTeam(team)` is called, which moves all cores to `Team.green` and destroys units.
+- On elimination (last core destroyed): the player is moved to `Team.derelict` and a broadcast is sent.
+
+### `/top` Command (Hexed)
+
+Displays the top 10 players globally sorted by `hexed_rank` then `hexed_points` descending, showing rank name and points.
+
+---
+
+## the-last-standing
+
+`LastStanding` activates when `config.isLastStanding()` returns `true`.
+
+This mode is a cooperative survival game where multiple human teams face AI waves together.
+
+### Team Spawn Floors
+
+Each team spawns in a distinct region identified by floor type:
+
+| Team | Spawn floor |
+|------|-------------|
+| `sharded` | `metalFloor` |
+| `malis` | `metalFloor2` |
+| `green` | `metalFloor3` |
+| `blue` | `metalFloor4` |
+
+### Wave-Based Elimination
+
+When a team's core is destroyed (`CoreChangeEvent`), all spawn tiles for that team's floor type are cleared of their overlay and removed from the spawner list on the next app tick. This prevents eliminated teams from continuing to receive waves.
+
+Waves are enabled on `PlayEvent` (`state.rules.waves = true`).
+
+### AI Behavior
+
+All unit AI controllers are wrapped by `LastStandingAi` for wave-team units. This override applies to every unit type in the game's content list at startup, so no per-unit configuration is needed.
+
+---
+
+## event
+
+`EventService` and related components activate when `config.isEvent()` returns `true`.
+
+The event server hosts rotating event maps chosen by player votes or admin action.
+
+### Hub Map
+
+When `config.isEventHubMap = true`, the server is in hub mode. The hub map ID is stored in `config.eventHubMapID`. Players on the hub can browse and vote for events without active gameplay.
+
+### Event Data
+
+Events are stored in MongoDB's `events` collection as `EventData` documents. Each event has:
+
+- `name` — display name
+- `isActive` — whether the event is currently running
+- `isTemporary` — whether it has a scheduled end time
+- `plannedEndTime` — epoch milliseconds for automatic expiry
+- `like` / `dislike` — community reputation counts
+
+### Activating Events
+
+Events are activated in two ways:
+
+**Vote:** A player starts a `VoteEvent` session. When the vote passes, `EventDataRepository.activateEvent(event)` is called.
+
+**Admin force:** An admin with the `forced` flag set activates the event immediately, ending any current vote and broadcasting a skip notification.
+
+### Automatic Event Expiry
+
+`EventService.checkTimedEvents()` is called periodically. If the active event is temporary and `now > plannedEndTime`, the event is finished and an `event-end` broadcast is sent to all players.
+
+### Event Commands
+
+```
+/event
+```
+
+Opens the event management menu (browse, vote, reputation).
+
+```
+/events [page]
+```
+
+Opens a paginated list of all available events. Default page is 1; page size is controlled by `GlobalConfig.eventsPerPage` (default: 10).
+
+### Voting for Events
+
+Players use the standard voting flow via `/vote y` / `/vote n` after an event vote has been started. See [Voting](/features/voting) for the general voting mechanics.
+
+---
+
+## Feature Flag Reference
+
+The `disabledFeatures` set in `config.json` can suppress specific features regardless of server type:
+
+```json
+{
+  "server": "mini-pvp",
+  "disabledFeatures": ["rtv", "vnw"]
+}
+```
+
+| Key | Feature disabled |
+|-----|-----------------|
+| `rtv` | Rock the Vote map change voting |
+| `vnw` | Vote New Wave skip voting |
+
+Checks are performed via `Config.isFeatureDisabled(Feature)`. The `Feature` enum currently defines `RTV` and `VNW`.

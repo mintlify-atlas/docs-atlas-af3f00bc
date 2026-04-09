@@ -1,0 +1,140 @@
+---
+title: Installation
+description: How to build XCore Plugin from source, deploy the JAR to a Mindustry server, and optionally pull a published artifact from the XCore Maven repository.
+---
+
+<Warning>
+  XCore Plugin requires **Java 25 or newer**. The Gradle build toolchain is pinned to `JavaLanguageVersion.of(25)` in `build.gradle.kts`. Using an older JDK will cause the build to fail. Download the latest JDK from [jdk.java.net](https://jdk.java.net/) or your preferred distribution.
+</Warning>
+
+## Prerequisites
+
+Before you begin, make sure the following are available on the host that will run the Mindustry server:
+
+- **Java 25+** — required to run the server and the plugin.
+- **MongoDB 6.0+** — the plugin persists all player data, map data, match history, moderation records, and migrations to MongoDB.
+- **Redis** — used for cross-server networking (RPC, pub/sub, Discord bridge, translation cache).
+- **Mindustry dedicated server v155.4+** — the plugin targets the headless server platform; it will not load on a client build.
+
+## Building from source
+
+<Steps>
+  <Step title="Clone the repository">
+    <CodeGroup>
+
+    ```bash bash
+    git clone https://github.com/XCore-mindustry/XCore-plugin.git
+    cd XCore-plugin
+    ```
+
+    </CodeGroup>
+  </Step>
+
+  <Step title="Build the fat JAR">
+    Run the `shadowJar` Gradle task. This produces a single self-contained JAR with all bundled dependencies (MongoDB driver, Lettuce Redis client, FluBundle, avaje-inject, etc.).
+
+    <CodeGroup>
+
+    ```bash Linux / macOS
+    ./gradlew shadowJar
+    ```
+
+    ```bash Windows
+    gradlew.bat shadowJar
+    ```
+
+    </CodeGroup>
+
+    The output JAR is written to:
+
+    ```
+    build/libs/XCore-plugin-<version>.jar
+    ```
+
+    <Tip>
+      For a production build that excludes test-only artefacts and applies reproducible-file-order settings, use `shadowJarRelease` instead. The release JAR lands in `build/libs/release/`.
+    </Tip>
+  </Step>
+
+  <Step title="Copy the JAR to your Mindustry server">
+    Place the JAR inside the `config/mods/` directory of your Mindustry server installation.
+
+    <CodeGroup>
+
+    ```bash bash
+    cp build/libs/XCore-plugin-*.jar /path/to/mindustry-server/config/mods/
+    ```
+
+    </CodeGroup>
+
+    Mindustry scans `config/mods/` at startup and loads every `.jar` that contains a `plugin.json` descriptor. XCore Plugin's descriptor is embedded automatically by the build.
+  </Step>
+
+  <Step title="Start the server once to generate config files">
+    Launch the Mindustry dedicated server. On the first run, XCore Plugin creates the following directory structure under `config/mods/`:
+
+    ```
+    config/mods/
+    └── XCore/
+        ├── servers.json     # Global config (MongoDB, vote/moderation tunables, translation providers)
+        └── config.json      # Per-server config (Redis URL, server identity, player limit, …)
+    ```
+
+    The server will print an error and stop plugin initialization if `servers.json` is missing the required `mongoConnectionString` and `databaseName` fields. Edit the file, then restart.
+  </Step>
+
+  <Step title="Configure MongoDB and Redis">
+    Open `config/mods/XCore/servers.json` and supply at minimum the two required fields:
+
+    ```json servers.json
+    {
+      "mongoConnectionString": "mongodb://localhost:27017",
+      "databaseName": "xcore"
+    }
+    ```
+
+    Then open `config/mods/XCore/config.json` and set the `redisUrl` for your Redis instance:
+
+    ```json config.json
+    {
+      "server": "my-server",
+      "redisUrl": "redis://127.0.0.1:6379"
+    }
+    ```
+
+    Restart the server. The plugin runs its MongoDB migration suite on startup and logs `Plugin initialized.` on success.
+  </Step>
+</Steps>
+
+## Pulling from Maven (alternative)
+
+GitHub Actions publishes the plugin artifact to the XCore Maven repository (powered by Reposilite) on every push and release. You can resolve the JAR directly from Maven without building from source.
+
+| Channel | URL | When published |
+|---|---|---|
+| Snapshots | `https://maven.x-core.org/snapshots` | Every non-PR push to `main` |
+| Releases | `https://maven.x-core.org/releases` | When a GitHub Release is created |
+
+<Note>
+  FluBundle (`1.3+`) is also hosted on `https://maven.x-core.org/releases` and is required at runtime. If you resolve XCore Plugin via Maven, add the XCore releases repository so Gradle or Maven can resolve FluBundle as well.
+</Note>
+
+Add the repositories and dependency to your `build.gradle.kts`:
+
+```kotlin build.gradle.kts
+repositories {
+    maven(url = "https://maven.x-core.org/releases")
+    maven(url = "https://maven.x-core.org/snapshots")
+}
+
+dependencies {
+    // Use the latest release version, or append -SNAPSHOT for snapshots
+    implementation("org.xcore.plugin:XCore-plugin:3.2")
+}
+```
+
+Gradle repository names used by the plugin's own CI follow the Reposilite convention: `xcoreRepositorySnapshots` and `xcoreRepositoryReleases`.
+
+<Warning>
+  Snapshot versions are not retained indefinitely. Retention policy is enforced on the Reposilite side. Pin to a release version for production deployments.
+</Warning>

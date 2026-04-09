@@ -1,0 +1,98 @@
+---
+title: Private Messages
+description: Persistent cross-server private messaging that lets players send and receive direct messages across the XCore network.
+---
+
+Private messages (PMs) let players communicate directly with one another regardless of which server they are on. Messages are stored in MongoDB and delivered in real time if the recipient is online, or queued as unread inbox messages if they are not. Cross-server delivery is handled transparently via Redis-backed socket events.
+
+## Sending and replying
+
+<Steps>
+  <Step title="Send a message">
+    Use `/msg <id> <message>` where `<id>` is the recipient's numeric player ID (PID).
+
+    ```
+    /msg 42 Hey, want to co-op the next wave?
+    ```
+
+    The full message text (including spaces) is captured as a single argument.
+  </Step>
+  <Step title="Message is validated">
+    Before delivery, XCore checks:
+    - The sender is **not muted** (muted players cannot send messages)
+    - The target player exists
+    - The sender is not messaging themselves
+    - The message is not blank and does not exceed **300 characters**
+    - The sender is not within the **10-second cooldown** window
+    - The sender has not been **blocked** by the recipient
+    - The recipient's unread inbox has not reached the **30-message limit**
+  </Step>
+  <Step title="Delivery or dispatch">
+    If the recipient is online on **the same server**, the message is marked delivered immediately and shown in their chat. If they are on a **different server**, a `PrivateMessageEvent` is published over Redis and picked up by the server the recipient is connected to.
+  </Step>
+  <Step title="Reply to the last conversation">
+    Use `/reply <message>` to respond without specifying a PID. XCore remembers the last PID you exchanged messages with in the current session; if that is not available it falls back to the most recent conversation partner found in the database.
+
+    ```
+    /reply I'll be there in a minute!
+    ```
+  </Step>
+</Steps>
+
+## Inbox commands
+
+### `/inbox`
+
+Opens the inbox menu, showing received messages paginated at **10 messages per page**.
+
+### `/inbox unread`
+
+Prints the number of unread messages currently in your inbox.
+
+### `/inbox blocked`
+
+Opens the blocked-players menu, showing everyone you have blocked from sending you private messages.
+
+### `/inbox block <id>`
+
+Blocks a player by PID. Once blocked, that player's messages will be silently rejected before delivery. The block list has a cap of **100 entries**.
+
+```
+/inbox block 99
+```
+
+### `/inbox unblock <id>`
+
+Removes a player from your block list.
+
+```
+/inbox unblock 99
+```
+
+<Note>
+  Blocking is one-directional. Blocking a player prevents them from reaching your inbox but does not prevent you from messaging them.
+</Note>
+
+## Mute enforcement
+
+All send and reply commands are annotated with `@RequiresMuteCheck`. If the player is muted at the time they invoke `/msg` or `/reply`, the command is rejected before any processing occurs. The mute check applies only to outbound messages; muted players can still read their inbox.
+
+## Configuration reference
+
+The following fields in `GlobalConfig` control private messaging behavior. They can be adjusted in the global configuration file without recompiling the plugin.
+
+| Field | Default | Description |
+|---|---|---|
+| `privateMessageMaxLength` | `300` | Maximum character length of a single message. |
+| `privateMessageCooldownSeconds` | `10` | Minimum seconds between outbound messages from the same player. |
+| `privateMessageUnreadLimit` | `30` | Maximum number of unread messages a recipient can hold. New messages are rejected when this limit is reached. |
+| `privateMessageBlockedLimit` | `100` | Maximum number of players a single player can block. |
+| `privateMessagesPerPage` | `10` | Number of messages shown per page in the inbox menu. |
+
+## Cross-server delivery via Redis
+
+When a message cannot be delivered locally (recipient is on another server), XCore publishes a `PrivateMessageEvent` to the Redis-backed network event bus. The receiving server listens for this event and, if the recipient is online there, delivers the message to their chat in real time and updates their `lastPrivateTargetPid` so `/reply` works correctly on that server.
+
+<Tip>
+  Unread messages are persisted in MongoDB, so players who are offline at the time a message is sent will still see it in their inbox the next time they connect to any server in the network.
+</Tip>

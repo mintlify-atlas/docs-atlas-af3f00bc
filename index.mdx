@@ -1,97 +1,71 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "XCore Plugin"
+description: "A multifunctional plugin for Mindustry servers — player management, moderation, game modes, cross-server networking, and more."
 ---
 
-## Setting up
+XCore Plugin extends your Mindustry server with a comprehensive feature set: persistent player profiles, cross-server chat via Redis, advanced moderation tools, unlockable badges, multiple game modes, and a multilingual chat translation pipeline.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Build and deploy XCore Plugin to your Mindustry server in minutes.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Configuration" icon="sliders" href="/configuration">
+    Configure MongoDB, Redis, translation providers, and server settings.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Features" icon="sparkles" href="/features/player-management">
+    Explore player stats, moderation, game modes, badges, and more.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Command Reference" icon="terminal" href="/commands/player-commands">
+    Full reference for all player and admin commands.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What XCore Plugin provides
 
-Everything you need to create world-class documentation.
+<CardGroup cols={2}>
+  <Card title="Player management" icon="user">
+    Persistent player profiles with PvP ratings, Hexed progression, playtime tracking, and a rich in-game stats menu.
+  </Card>
+  <Card title="Moderation" icon="shield">
+    Ban, mute, votekick, and temporary-ban tools with cross-server broadcast over Redis streams.
+  </Card>
+  <Card title="Game modes" icon="gamepad">
+    Built-in support for Hexed, PvP, Last Standing, and Event game modes with per-mode statistics.
+  </Card>
+  <Card title="Badges" icon="award">
+    Unlockable player badges (Developer, Translator, Veteran, and more) displayed in chat and player profiles.
+  </Card>
+  <Card title="Private messages" icon="envelope">
+    Persistent cross-server private messaging with inbox, reply, and player-block flows.
+  </Card>
+  <Card title="Chat translation" icon="language">
+    Configurable translation pipeline (Google Translate + OpenAI-compatible providers) for multilingual servers.
+  </Card>
+  <Card title="Discord integration" icon="discord" href="/features/discord-integration">
+    Link player accounts to Discord, receive moderation logs, and manage admin access from Discord.
+  </Card>
+  <Card title="Cross-server networking" icon="network-wired" href="/architecture/networking">
+    Redis-backed pub/sub and RPC layer for global chat, moderation events, and server discovery.
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## Quick start
 
-## Need inspiration?
+<Steps>
+  <Step title="Install dependencies">
+    Ensure you have Java 25+, MongoDB 6.0+, Redis, and Mindustry v155.4+ installed on your server.
+  </Step>
+  <Step title="Build the plugin">
+    Clone the repository and run `./gradlew shadowJar` to produce the plugin JAR.
+  </Step>
+  <Step title="Deploy to Mindustry">
+    Copy the JAR from `build/libs/` to your server's `config/mods/` directory.
+  </Step>
+  <Step title="Configure connections">
+    Edit `config/mods/XCore/servers.json` with your MongoDB connection string and Redis URL, then restart the server.
+  </Step>
+</Steps>
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<Note>
+  See the [Installation](/installation) and [Configuration](/configuration) pages for complete setup instructions.
+</Note>

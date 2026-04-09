@@ -1,0 +1,161 @@
+---
+title: Player Management
+description: Player profiles, persistent data, statistics, leaderboards, observer mode, settings, and session lifecycle in XCore.
+---
+
+XCore maintains a persistent player profile for every player backed by MongoDB. On join, the profile is loaded into a memory-resident session that every command and service reads from. Changes to settings and statistics are immediately reflected in both the in-memory cache and the database.
+
+## Player Profile Fields
+
+Each player's persistent record is stored as a `PlayerData` document in the `players` MongoDB collection.
+
+<AccordionGroup>
+  <Accordion title="Identity fields">
+    | Field | DB column | Default | Description |
+    |---|---|---|---|
+    | `pid` | `pid` | auto-increment | Unique internal numeric ID assigned on first save |
+    | `uuid` | `uuid` | — | Mindustry UUID (unique index) |
+    | `ip` | `last_ip` | `""` | Last seen IP address |
+    | `nickname` | `nickname` | `"Unknown"` | In-game name at time of last connection |
+    | `customNickname` | `custom_nickname` | `""` | Admin-set custom display name (overrides `nickname`) |
+    | `description` | `description` | `""` | Optional player description shown in the stats menu |
+  </Accordion>
+  <Accordion title="Statistics fields">
+    | Field | DB column | Default | Description |
+    |---|---|---|---|
+    | `totalPlayTime` | `total_play_time` | `0` | Cumulative playtime in minutes, incremented every 60 seconds |
+    | `pvpRating` | `pvp_rating` | `0` | PvP rating (only meaningful on `mini-pvp` servers) |
+    | `hexedRank` | `hexed_rank` | `0` (newbie) | Hexed rank ordinal (0–5, maps to `HexedRank` enum) |
+    | `hexedPoints` | `hexed_points` | `0` | Win points accumulated toward the next hexed rank |
+  </Accordion>
+  <Accordion title="Social and preferences">
+    | Field | DB column | Default | Description |
+    |---|---|---|---|
+    | `language` | `local_language` | `"auto"` | Preferred language for localized messages |
+    | `translatorLanguage` | `translator_language` | `"off"` | Target language for in-game chat translation |
+    | `globalChatVisible` | `show_global_chat` | `true` | Whether cross-server global chat is displayed |
+    | `discordRelayVisible` | `show_discord_relay` | `true` | Whether Discord relay messages are displayed |
+    | `leaderboard` | `leaderboard` | `true` | Opt-in/out of in-game leaderboard display |
+    | `activeBadge` | `active_badge` | `""` | Currently equipped badge ID |
+    | `unlockedBadges` | `unlocked_badges` | `{}` | Set of badge IDs the player has unlocked |
+    | `blockedPrivateUuids` | `blocked_private_uuids` | `{}` | UUIDs blocked from sending private messages |
+  </Accordion>
+  <Accordion title="Admin fields">
+    | Field | DB column | Default | Description |
+    |---|---|---|---|
+    | `admin` | `is_admin` | `false` | Whether the player has admin privileges |
+    | `adminSource` | `admin_source` | `"NONE"` | Origin of the admin grant (e.g. `"DISCORD"`, `"CONSOLE"`) |
+  </Accordion>
+</AccordionGroup>
+
+## Session Lifecycle
+
+A `Session` wraps a `PlayerData` record and a live `Player` handle for the duration the player is online. Sessions are managed by `SessionService`, which keeps an in-memory `ObjectMap<String, Session>` keyed by UUID.
+
+<Steps>
+  <Step title="Player connects">
+    `SessionService.registerLogin(player)` is called. The service calls `PlayerDataRepository.findByPlayer(player)`. If no record exists, a new `PlayerData` is constructed in memory with `exists = false`.
+  </Step>
+  <Step title="Session created">
+    A `Session` is built via `SessionFactory` with the loaded `PlayerData` and the live `Player`. Default fields (`mapVotes`, `eventVotes`, `blockedPrivateUuids`, `language`, etc.) are initialized if null. The session is stored in `sessionCache`.
+  </Step>
+  <Step title="Playtime tracking">
+    `PlayerActivityService` runs a `Timer` that fires every 60 seconds. For each cached session whose `Player` is still online, it calls `SessionService.incrementPlayTime(session, 1)`, which increments `totalPlayTime` in memory and issues `$inc` on `total_play_time` in MongoDB.
+  </Step>
+  <Step title="Data mutations">
+    All field updates go through `SessionService.mutateSession(...)`, which applies the change to the in-memory `PlayerData` and immediately persists it via the repository. For example, `updateLeaderboard`, `updateCustomNickname`, and `updateDescription` all follow this pattern.
+  </Step>
+  <Step title="Player disconnects">
+    `SessionService.registerLogout(player)` removes the session from `sessionCache`. The final state has already been written incrementally; no full-document flush occurs on disconnect.
+  </Step>
+</Steps>
+
+<Note>
+  `SessionService.getOrLoadFromDb(uuid)` provides a cache-with-fallback lookup used by commands that accept an optional player ID argument. If the target is offline, data is fetched directly from MongoDB without creating a session.
+</Note>
+
+## Display Name Composition
+
+`PlayerDisplayService.buildDisplayName(data, player)` assembles the player's in-game name in this order:
+
+1. **System badge** — `[A]` admin tag if the player is an admin
+2. **Selected badge** — the player's equipped selectable badge (if unlocked)
+3. **Hexed rank tag** — colored bracket tag based on `hexedRank` (only on `mini-hexed` servers)
+4. **Base name** — `customNickname` if set, otherwise `nickname`, otherwise the Mindustry `lastName`
+
+`PlayerDisplayService.refresh(session)` writes the composed name back to `player.name` and updates the Mindustry admin info record.
+
+## Player Statistics Command
+
+```
+/player [id]
+/stats [id]
+/player-statistics [id]
+```
+
+Opens the in-game **Player Statistics** menu for the specified player. If no `[id]` (PID) is provided, the command targets the caller.
+
+- The session data is looked up first from the in-memory cache; if the target is offline, `getOrLoadFromDb(id)` fetches from MongoDB.
+- The menu renders fields such as `pid`, `nickname`, `pvpRating`, `hexedPoints`, `totalPlayTime`, linked Discord account, and active badge.
+
+## Settings Menu
+
+```
+/settings [id]
+```
+
+Opens the **Settings** menu. Accepts an optional PID to view another player's settings (admin use). Settings that can be toggled include language, translator language, global chat visibility, Discord relay visibility, and active badge.
+
+## Leaderboard Toggle
+
+```
+/lb
+```
+
+Toggles the player's participation in the in-game leaderboard. Flips `data.leaderboard` in memory and persists via `SessionService.updateLeaderboard`.
+
+```
+/lb
+# Response: leaderboard is now enabled: true
+```
+
+## Top Players
+
+```
+/top
+```
+
+Displays the top 10 players sorted by the server-appropriate metric:
+
+- On `mini-hexed`: sorted by `hexed_rank` descending, then `hexed_points` descending
+- On other servers: sorted by `pvp_rating` descending
+
+```
+# Example output on mini-pvp
+1. PlayerOne — Rating: 420
+2. PlayerTwo — Rating: 380
+```
+
+The query is issued directly against MongoDB via `PlayerDataRepository.findLeaders(fields...)` using a descending sort with `limit(10)`.
+
+## Observer Mode
+
+```
+/observer
+```
+
+Moves the caller to `Team.derelict` (spectator team) and clears their active unit. The player can watch the game without participating. A localized confirmation message is sent via the session's `Localization`.
+
+<Warning>
+  There is no undo command. To rejoin a team, the player must reconnect or be assigned a team by an admin using `/set-team`.
+</Warning>
+
+## Admin: Set Team
+
+```
+/set-team [id] [pid]
+```
+
+**Requires `admin` permission.**
+
+Moves a player to the specified Mindustry team. `[id]` is the Mindustry team ID (defaults to the admin's current team). `[pid]` is the target player's PID (defaults to the admin themselves). The target's active unit is cleared before switching teams.

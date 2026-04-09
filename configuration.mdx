@@ -1,0 +1,403 @@
+---
+title: Configuration
+description: Complete reference for all XCore Plugin configuration fields in servers.json (global config) and config.json (per-server config), including translation pipeline, cache, metrics, and LLM sub-objects.
+---
+
+XCore Plugin uses two JSON configuration files written to `config/mods/XCore/` on first run:
+
+| File | Class | Scope |
+|---|---|---|
+| `servers.json` | `GlobalConfig` | Shared across all server instances — MongoDB, vote/moderation tunables, translation providers |
+| `config.json` | `Config` | Per-server — Redis connection, server identity, player limit, disabled commands/features, translation pipeline |
+
+## Global config (`servers.json`)
+
+The global config is loaded from `servers.json` (or from a directory pointed to by `globalConfigDirectory` in `config.json`). Two fields are required; the server will refuse to start without them.
+
+### Example
+
+```json servers.json
+{
+  "mongoConnectionString": "mongodb://localhost:27017",
+  "databaseName": "xcore",
+  "discordUrl": "https://discord.gg/RUMCCa9QAC",
+  "voteKickBanDurationMinutes": 30,
+  "voteDurationSeconds": 60.0,
+  "mapSwitchDelaySeconds": 10,
+  "minPlayTimeForVotekick": 60,
+  "minPlayTimeForGlobalChat": 240,
+  "eventsPerPage": 10,
+  "mapsPerPage": 10,
+  "commandsPerPage": 6,
+  "privateMessagesPerPage": 10,
+  "maxHistory": 16,
+  "privateMessageMaxLength": 300,
+  "privateMessageCooldownSeconds": 10,
+  "privateMessageUnreadLimit": 30,
+  "privateMessageBlockedLimit": 100,
+  "translationProviders": {
+    "google": {
+      "type": "google",
+      "enabled": true
+    }
+  }
+}
+```
+
+### Fields
+
+<ParamField body="mongoConnectionString" type="string" required>
+  MongoDB connection URI. Passed directly to the MongoDB Java driver. Example: `"mongodb://localhost:27017"` or a full Atlas URI with credentials. The server will not start if this field is missing or blank.
+</ParamField>
+
+<ParamField body="databaseName" type="string" required>
+  Name of the MongoDB database where XCore stores all collections (players, maps, games, punishments, etc.). The server will not start if this field is missing or blank.
+</ParamField>
+
+<ParamField body="discordUrl" type="string" default="https://discord.gg/RUMCCa9QAC">
+  Discord invite URL shown to players in the in-game Discord link menu.
+</ParamField>
+
+<ParamField body="githubUrl" type="string" default="https://github.com/XCore-mindustry/">
+  GitHub organisation URL, shown in informational menus.
+</ParamField>
+
+<ParamField body="donatelloUrl" type="string" default="https://donatello.to/xcore">
+  Donation page URL surfaced in informational menus.
+</ParamField>
+
+<ParamField body="weblateUrl" type="string" default="https://xcore.eradication.fun/">
+  Weblate translation project URL shown to players who want to contribute translations.
+</ParamField>
+
+<ParamField body="discordRedVSBlueUrl" type="string" default="https://discord.gg/UdnuFetcNt">
+  Discord invite URL for the Red vs Blue game-mode community server.
+</ParamField>
+
+<ParamField body="voteKickBanDurationMinutes" type="number" default="30">
+  How many minutes a player is banned when a vote-kick passes.
+</ParamField>
+
+<ParamField body="voteDurationSeconds" type="number" default="60.0">
+  How many seconds a vote session (RTV, new wave, vote-kick) stays open before it times out.
+</ParamField>
+
+<ParamField body="mapSwitchDelaySeconds" type="number" default="10">
+  Seconds to wait after a vote passes before the map is actually switched.
+</ParamField>
+
+<ParamField body="minPlayTimeForVotekick" type="number" default="60">
+  Minimum seconds a player must have been in the current session before they are allowed to start or cast a vote-kick.
+</ParamField>
+
+<ParamField body="minPlayTimeForGlobalChat" type="number" default="240">
+  Minimum cumulative play-time in seconds before a player can use the global chat (`/g`) channel.
+</ParamField>
+
+<ParamField body="eventsPerPage" type="number" default="10">
+  Number of events shown per page in the events list menu.
+</ParamField>
+
+<ParamField body="mapsPerPage" type="number" default="10">
+  Number of maps shown per page in the map browser menu.
+</ParamField>
+
+<ParamField body="commandsPerPage" type="number" default="6">
+  Number of commands shown per page in the help menu.
+</ParamField>
+
+<ParamField body="privateMessagesPerPage" type="number" default="10">
+  Number of messages shown per page in the private message inbox.
+</ParamField>
+
+<ParamField body="maxHistory" type="number" default="16">
+  Maximum number of history entries retained for map rotation or game history queries.
+</ParamField>
+
+<ParamField body="privateMessageMaxLength" type="number" default="300">
+  Maximum character length of a private message body.
+</ParamField>
+
+<ParamField body="privateMessageCooldownSeconds" type="number" default="10">
+  Minimum seconds between private messages sent by the same player.
+</ParamField>
+
+<ParamField body="privateMessageUnreadLimit" type="number" default="30">
+  Maximum number of unread messages stored per player inbox before older messages are discarded.
+</ParamField>
+
+<ParamField body="privateMessageBlockedLimit" type="number" default="100">
+  Maximum number of players a single player can block.
+</ParamField>
+
+<ParamField body="isDataBaseReadOnly" type="boolean" default="false">
+  When `true`, the plugin opens MongoDB in read-only mode. Writes are silently skipped. Useful for maintenance or disaster-recovery inspection.
+</ParamField>
+
+<ParamField body="isDataBaseMigration" type="boolean" default="false">
+  When `true`, puts the plugin into migration mode. Use this only when running a deliberate schema migration outside of normal operation.
+</ParamField>
+
+<ParamField body="translationProviders" type="object" default='{"google": {"type": "google", "enabled": true}}'>
+  Map of named translation provider configurations. Keys are provider IDs referenced by the per-server `translation.pipeline` list. See [TranslationProviderConfig](#translationproviderconfig) below.
+</ParamField>
+
+---
+
+### TranslationProviderConfig
+
+Each entry in `translationProviders` is a `TranslationProviderConfig` object keyed by a provider ID (e.g. `"google"`, `"openai"`, `"my-llm"`).
+
+<ParamField body="type" type="string" default="google">
+  Provider backend. Use `"google"` for the Google Cloud Translation API or `"openai-compatible"` for any endpoint that implements the OpenAI chat-completions API (e.g. NVIDIA Integrate, local Ollama, Azure OpenAI).
+</ParamField>
+
+<ParamField body="enabled" type="boolean" default="true">
+  Whether this provider is active. Set to `false` to temporarily disable a provider without removing it from the pipeline configuration.
+</ParamField>
+
+<ParamField body="apiKey" type="string">
+  API key for the provider. Required for Google Translate (Restricted API key with Cloud Translation enabled) and most OpenAI-compatible endpoints.
+</ParamField>
+
+<ParamField body="baseUrl" type="string" default="https://api.openai.com/v1">
+  Base URL for OpenAI-compatible providers. Override to point to a local or third-party chat-completions endpoint. Ignored when `type` is `"google"`.
+</ParamField>
+
+<ParamField body="model" type="string" default="gpt-5.4">
+  Model identifier sent in the `model` field of the chat-completions request. Ignored when `type` is `"google"`.
+</ParamField>
+
+<ParamField body="apiMode" type="string">
+  Optional mode hint, normalised to lowercase. Used to enable compatibility paths for specific provider flavours (e.g. `"nvidia"`). Leave unset for standard OpenAI-compatible providers.
+</ParamField>
+
+<ParamField body="organization" type="string">
+  OpenAI organisation ID sent in the `OpenAI-Organization` header. Leave unset if not required.
+</ParamField>
+
+<ParamField body="project" type="string">
+  OpenAI project ID sent in the `OpenAI-Project` header. Leave unset if not required.
+</ParamField>
+
+<ParamField body="timeoutSeconds" type="number" default="15">
+  HTTP request timeout in seconds. Requests that exceed this limit are treated as failures and the pipeline falls back to the next provider.
+</ParamField>
+
+<ParamField body="maxRetries" type="number" default="1">
+  Number of times to retry a failed request before giving up and falling back. Set to `0` for no retries.
+</ParamField>
+
+<ParamField body="temperature" type="number" default="0.0">
+  Sampling temperature sent to OpenAI-compatible providers. `0.0` produces deterministic outputs, which is recommended for translation. Ignored when `type` is `"google"`.
+</ParamField>
+
+<ParamField body="supportedLanguages" type="string[]" default="[]">
+  Optional allowlist of BCP 47 language tags (e.g. `["en", "ru", "uk"]`) this provider will handle. When empty, the provider is used for all language pairs. Use this to route specific language pairs to specialised providers.
+</ParamField>
+
+---
+
+## Per-server config (`config.json`)
+
+The per-server config is loaded from `config/mods/XCore/config.json`. Each Mindustry server instance reads its own copy, so you can run multiple servers with different identities and settings against the same MongoDB and Redis.
+
+### Example
+
+```json config.json
+{
+  "server": "my-server",
+  "discordChannelId": 1234567890123456789,
+  "redisUrl": "redis://127.0.0.1:6379",
+  "redisGroupPrefix": "xcore:cg",
+  "redisConsumerName": "xcore-node",
+  "playerLimit": 30,
+  "consoleEnabled": true,
+  "disabledCommands": [],
+  "disabledFeatures": [],
+  "translation": {
+    "enabled": true,
+    "pipeline": ["google"],
+    "preserveOriginalMessageOnFailure": true,
+    "cache": {
+      "enabled": true,
+      "ttlSeconds": 1800,
+      "maxTextLength": 500
+    },
+    "metrics": {
+      "enabled": true,
+      "minuteBucketsEnabled": true,
+      "minuteBucketTtlSeconds": 21600
+    },
+    "llm": {
+      "preserveFormattingTokens": true,
+      "structuredOutputRequired": true,
+      "maxInputChars": 500,
+      "maxOutputChars": 1200,
+      "stripControlCharacters": true
+    }
+  }
+}
+```
+
+### Fields
+
+<ParamField body="server" type="string" default="server">
+  Logical server identifier. Used to identify this instance in cross-server Redis routing, moderation event delivery, and Discord channel bridging. Built-in values that activate specific game-mode behaviour: `"mini-pvp"`, `"mini-hexed"`, `"the-last-standing"`, `"event"`.
+</ParamField>
+
+<ParamField body="discordChannelId" type="number" default="0">
+  Discord channel snowflake ID. Incoming Discord messages tagged with this ID are delivered to this server's in-game chat.
+</ParamField>
+
+<ParamField body="redisUrl" type="string" default="redis://127.0.0.1:6379">
+  Lettuce-format Redis connection URI. Supports `redis://`, `rediss://` (TLS), and `redis-sentinel://` schemes.
+</ParamField>
+
+<ParamField body="redisGroupPrefix" type="string" default="xcore:cg">
+  Prefix used when creating Redis consumer groups for this server's stream subscriptions.
+</ParamField>
+
+<ParamField body="redisConsumerName" type="string" default="xcore-node">
+  Consumer name registered with Redis Streams. Should be unique per server instance if multiple instances share the same Redis.
+</ParamField>
+
+<ParamField body="redisReclaimEnabled" type="boolean" default="true">
+  When `true`, the server periodically reclaims idle pending Redis stream messages that were not acknowledged within `redisReclaimMinIdleMs` milliseconds.
+</ParamField>
+
+<ParamField body="redisReclaimMinIdleMs" type="number" default="15000">
+  Minimum idle time in milliseconds before a pending stream message is eligible for reclaim.
+</ParamField>
+
+<ParamField body="redisReclaimBatch" type="number" default="50">
+  Maximum number of messages to reclaim per reclaim cycle.
+</ParamField>
+
+<ParamField body="redisDlqEnabled" type="boolean" default="true">
+  When `true`, messages that exceed `redisMaxDeliveryAttempts` are moved to a dead-letter queue stream instead of being dropped.
+</ParamField>
+
+<ParamField body="redisMaxDeliveryAttempts" type="number" default="3">
+  Number of delivery attempts before a message is sent to the dead-letter queue.
+</ParamField>
+
+<ParamField body="redisDlqPrefix" type="string" default="xcore:dlq">
+  Redis key prefix used for dead-letter queue streams.
+</ParamField>
+
+<ParamField body="consoleEnabled" type="boolean" default="true">
+  When `true`, the plugin registers JLine-enhanced console commands. Set to `false` if your hosting environment does not support an interactive terminal.
+</ParamField>
+
+<ParamField body="playerLimit" type="number" default="30">
+  Maximum number of non-admin players allowed on the server simultaneously. Admin players are counted separately and do not consume slots from this limit.
+</ParamField>
+
+<ParamField body="globalConfigDirectory" type="string">
+  Optional path to a directory containing `servers.json`. When unset, the plugin looks for `servers.json` inside `config/mods/XCore/`. Override this to share one global config file across multiple server instances on the same host.
+</ParamField>
+
+<ParamField body="gameStartedTimer" type="boolean" default="true">
+  When `true`, a game-start timestamp is recorded so elapsed game time can be displayed in menus and stats.
+</ParamField>
+
+<ParamField body="disabledCommands" type="string[]" default="[]">
+  List of command names to disable on this server. Disabled commands are removed from the command registry at startup and do not appear in the help menu.
+</ParamField>
+
+<ParamField body="disabledFeatures" type="string[]" default="[]">
+  List of feature keys to disable on this server. Currently supported keys: `"rtv"` (disables Rock the Vote from both menu and command paths), `"vnw"` (disables Vote New Wave).
+</ParamField>
+
+<ParamField body="isEventHubMap" type="boolean" default="false">
+  When `true`, this server acts as an event hub, showing an event map selection interface. Use in conjunction with `eventHubMapID`.
+</ParamField>
+
+<ParamField body="eventHubMapID" type="string" default='""'>
+  Map identifier used as the hub map when `isEventHubMap` is `true`.
+</ParamField>
+
+<ParamField body="translation" type="object">
+  Translation pipeline configuration for this server. See [TranslationConfig](#translationconfig) below.
+</ParamField>
+
+---
+
+### TranslationConfig
+
+Nested under `translation` in `config.json`. Controls whether translation is active, which providers are used, and how the cache, metrics, and LLM behaviour are tuned.
+
+<ParamField body="translation.enabled" type="boolean" default="true">
+  Master switch for chat translation on this server. When `false`, no translation requests are made regardless of other settings.
+</ParamField>
+
+<ParamField body="translation.pipeline" type="string[]" default='["google"]'>
+  Ordered list of provider IDs to attempt for each translation request. IDs must match keys in `translationProviders` in `servers.json`. The pipeline falls back to the next provider on failure. Example: `["my-llm", "google"]` tries `my-llm` first and falls back to `google`.
+</ParamField>
+
+<ParamField body="translation.preserveOriginalMessageOnFailure" type="boolean" default="true">
+  When `true` and all pipeline providers fail, the original untranslated message is delivered to the player. When `false`, the message is silently dropped on total translation failure.
+</ParamField>
+
+---
+
+#### translation.cache
+
+Controls the Redis-backed translation result cache. Caching avoids redundant API calls for repeated phrases.
+
+<ParamField body="translation.cache.enabled" type="boolean" default="true">
+  Whether the translation cache is active.
+</ParamField>
+
+<ParamField body="translation.cache.ttlSeconds" type="number" default="1800">
+  Time-to-live in seconds for each cached translation entry. Entries older than this are evicted from Redis. Minimum effective value is `1`; values `≤ 0` are reset to `1800`.
+</ParamField>
+
+<ParamField body="translation.cache.maxTextLength" type="number" default="500">
+  Maximum character length of a source text that will be cached. Texts longer than this are translated on every request and never stored. Values `≤ 0` are reset to `500`.
+</ParamField>
+
+---
+
+#### translation.metrics
+
+Controls collection of translation performance metrics stored in Redis time-series buckets.
+
+<ParamField body="translation.metrics.enabled" type="boolean" default="true">
+  Whether translation metrics collection is active. Metrics are viewable at runtime with the `/translation stats` command.
+</ParamField>
+
+<ParamField body="translation.metrics.minuteBucketsEnabled" type="boolean" default="true">
+  When `true`, translation counts and latencies are bucketed by minute in Redis for time-series analysis.
+</ParamField>
+
+<ParamField body="translation.metrics.minuteBucketTtlSeconds" type="number" default="21600">
+  TTL in seconds for per-minute metric buckets (default: 6 hours). Values `≤ 0` are reset to `21600`.
+</ParamField>
+
+---
+
+#### translation.llm
+
+Policies applied specifically when an OpenAI-compatible (LLM) provider is used in the pipeline. These settings help enforce output safety and token efficiency.
+
+<ParamField body="translation.llm.preserveFormattingTokens" type="boolean" default="true">
+  When `true`, Mindustry colour and formatting tokens (e.g. `[red]`, `[]`) present in the source text are preserved in the LLM output rather than being stripped or rewritten.
+</ParamField>
+
+<ParamField body="translation.llm.structuredOutputRequired" type="boolean" default="true">
+  When `true`, the plugin requests structured JSON output from the LLM to reliably extract the translated string. Disable only for models that do not support structured output.
+</ParamField>
+
+<ParamField body="translation.llm.maxInputChars" type="number" default="500">
+  Maximum character length of source text sent to an LLM provider. Texts exceeding this limit are not sent to the LLM and the pipeline falls back to the next provider. Values `≤ 0` are reset to `500`.
+</ParamField>
+
+<ParamField body="translation.llm.maxOutputChars" type="number" default="1200">
+  Maximum character length expected in the LLM response. Responses exceeding this length are rejected and the pipeline falls back. Values `≤ 0` are reset to `1200`.
+</ParamField>
+
+<ParamField body="translation.llm.stripControlCharacters" type="boolean" default="true">
+  When `true`, ASCII and Unicode control characters are stripped from the LLM response before delivery, preventing injection of invisible formatting or control sequences into chat.
+</ParamField>

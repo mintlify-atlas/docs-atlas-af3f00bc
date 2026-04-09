@@ -1,0 +1,317 @@
+---
+title: "Social & Communication Commands"
+description: "Chat, private messaging, Discord integration, and translation commands for XCore players."
+---
+
+<Info>
+  Commands marked with a **mute check** silently fail if the player is muted. Commands marked with a **play-time requirement** reject players who have not yet met the minimum session time.
+</Info>
+
+## Chat
+
+### /t
+
+Send a message to your team only. The message is automatically translated for teammates whose translator is enabled.
+
+**Usage:** `/t <message>`
+
+**Permission:** player
+
+**Restrictions:** `@RequiresMuteCheck` — blocked if the sender is muted.
+
+| Argument  | Type   | Required | Description            |
+| --------- | ------ | -------- | ---------------------- |
+| `message` | string | Yes      | Text to send (greedy). |
+
+**Example:**
+
+```text
+/t Let's push the right side
+```
+
+---
+
+### /g
+
+Broadcast a message to all players across every connected server (global cross-server chat).
+
+**Usage:** `/g <message>`
+
+**Permission:** player
+
+**Restrictions:**
+- `@RequiresMuteCheck` — blocked if the sender is muted.
+- `@RequiresPlayTime(GLOBAL_CHAT)` — requires the player to meet the minimum global-chat play-time threshold configured in the plugin.
+
+| Argument  | Type   | Required | Description              |
+| --------- | ------ | -------- | ------------------------ |
+| `message` | string | Yes      | Text to broadcast (greedy). |
+
+**Example:**
+
+```text
+/g Anyone want to join our server?
+```
+
+<Warning>
+  New players who have not yet met the minimum play-time requirement will receive an error when trying to use `/g`.
+</Warning>
+
+---
+
+## Private Messages
+
+### /msg
+
+Send a private message to another online player.
+
+**Usage:** `/msg <id> <message>`
+
+**Permission:** player
+
+**Restrictions:** `@RequiresMuteCheck`
+
+| Argument  | Type    | Required | Description                     |
+| --------- | ------- | -------- | ------------------------------- |
+| `id`      | integer | Yes      | Internal player ID (`#pid`).   |
+| `message` | string  | Yes      | Message text (greedy).          |
+
+**Example:**
+
+```text
+/msg 42 Hey, nice base!
+```
+
+---
+
+### /reply
+
+Reply to the last player who sent you a private message.
+
+**Usage:** `/reply <message>`
+
+**Permission:** player
+
+**Restrictions:** `@RequiresMuteCheck`
+
+| Argument  | Type   | Required | Description             |
+| --------- | ------ | -------- | ----------------------- |
+| `message` | string | Yes      | Reply text (greedy).    |
+
+**Example:**
+
+```text
+/reply Thanks!
+```
+
+<Note>
+  If no one has messaged you yet this session, this command will fail with "no previous sender."
+</Note>
+
+---
+
+## Inbox
+
+### /inbox
+
+Open the inbox menu to browse received private messages.
+
+**Usage:** `/inbox`
+
+**Permission:** player
+
+**Example:**
+
+```text
+/inbox
+```
+
+---
+
+### /inbox unread
+
+Display the number of unread private messages.
+
+**Usage:** `/inbox unread`
+
+**Permission:** player
+
+**Example:**
+
+```text
+/inbox unread
+```
+
+---
+
+### /inbox blocked
+
+Open the blocked-players list.
+
+**Usage:** `/inbox blocked`
+
+**Permission:** player
+
+**Example:**
+
+```text
+/inbox blocked
+```
+
+---
+
+### /inbox block
+
+Block a player so they can no longer send you private messages.
+
+**Usage:** `/inbox block <id>`
+
+**Permission:** player
+
+| Argument | Type    | Required | Description                   |
+| -------- | ------- | -------- | ----------------------------- |
+| `id`     | integer | Yes      | Internal player ID (`#pid`). |
+
+**Example:**
+
+```text
+/inbox block 17
+```
+
+---
+
+### /inbox unblock
+
+Unblock a previously blocked player.
+
+**Usage:** `/inbox unblock <id>`
+
+**Permission:** player
+
+| Argument | Type    | Required | Description                         |
+| -------- | ------- | -------- | ----------------------------------- |
+| `id`     | integer | Yes      | Internal player ID (`#pid`).       |
+
+**Example:**
+
+```text
+/inbox unblock 17
+```
+
+---
+
+## Discord Integration
+
+### /discord
+
+Open the Discord integration menu.
+
+**Usage:** `/discord`
+
+**Permission:** player
+
+**Example:**
+
+```text
+/discord
+```
+
+---
+
+### /discord link
+
+Generate a one-time linking code to connect your Mindustry account to your Discord account. The code expires after a few minutes and must be entered in the XCore Discord bot.
+
+**Usage:** `/discord link`
+
+**Permission:** player
+
+**Example:**
+
+```text
+/discord link
+```
+
+<Tip>
+  The command prints the linking code and the Discord server URL so you can complete the process without leaving the game.
+</Tip>
+
+**Possible outcomes:**
+
+| Outcome              | Description                                               |
+| -------------------- | --------------------------------------------------------- |
+| Code generated       | A unique code and expiry time are shown in chat.          |
+| Already linked       | Your account is already connected to a Discord account.   |
+| Error                | An internal error prevented the code from being created.  |
+
+---
+
+### /discord status
+
+Check whether your Mindustry account is linked to a Discord account.
+
+**Usage:** `/discord status`
+
+**Permission:** player
+
+**Example:**
+
+```text
+/discord status
+```
+
+---
+
+### /discord unlink
+
+Disconnect your Mindustry account from Discord.
+
+**Usage:** `/discord unlink`
+
+**Permission:** player
+
+**Example:**
+
+```text
+/discord unlink
+```
+
+<Warning>
+  If your account is not currently linked, the command returns an error rather than silently succeeding.
+</Warning>
+
+---
+
+## Translation
+
+### /tr
+
+Set your preferred translation target language. All incoming chat messages will be automatically translated to this language.
+
+**Usage:** `/tr <language>`
+
+**Permission:** player
+
+| Argument   | Type   | Required | Description                                                                                                           |
+| ---------- | ------ | -------- | --------------------------------------------------------------------------------------------------------------------- |
+| `language` | string | Yes      | Two-letter language code (e.g. `en`, `ru`, `de`), or the special values `off` and `auto` described below. |
+
+<Accordion title="Special values">
+  | Value  | Behaviour                                                                                                      |
+  | ------ | -------------------------------------------------------------------------------------------------------------- |
+  | `off`  | Disables translation entirely. You see all messages in their original language.                                |
+  | `auto` | Detects your client locale (e.g. `ru_RU` → `ru`) and sets translation to match. Falls back to `en` if the locale is unrecognised. |
+</Accordion>
+
+**Example:**
+
+```text
+/tr en
+/tr ru
+/tr off
+/tr auto
+```
+
+<Note>
+  The language code must match one of the codes supported by the configured translation pipeline. Use `/tr auto` if you are unsure of the exact code.
+</Note>

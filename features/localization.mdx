@@ -1,0 +1,215 @@
+---
+title: Localization and chat translation
+description: Per-player UI localization using FluBundle and a configurable real-time chat translation pipeline with Google and LLM providers.
+---
+
+XCore supports multiple UI languages resolved automatically per player session and a real-time chat translation pipeline that lets players read messages in their preferred language.
+
+## Supported languages
+
+UI strings are stored in FreeMarker-based bundle files under `src/main/resources/bundles/`. One file exists per locale:
+
+| Bundle file | Language |
+|---|---|
+| `bundle_en.ftl` | English |
+| `bundle_ru.ftl` | Russian |
+| `bundle_uk_UA.ftl` | Ukrainian |
+| `bundle_be.ftl` | Belarusian |
+| `bundle_pl.ftl` | Polish |
+| `bundle_de.ftl` | German |
+| `bundle_fr.ftl` | French |
+| `bundle_es.ftl` | Spanish |
+| `bundle_cs.ftl` | Czech |
+
+## FluBundle localization
+
+XCore uses [FluBundle](https://github.com/osp-x/flubundle) to resolve and render localized strings. When a player connects, the plugin reads their game client locale (e.g. `ru`, `uk_UA`) and binds a `Localization` instance to their session. All in-game messages — command responses, menu labels, system notifications — are rendered through that `Localization` object, so every player sees text in their own language without any manual configuration.
+
+<Note>
+  If the player's locale does not match any bundle file, XCore falls back to English (`bundle_en.ftl`).
+</Note>
+
+## Chat translation commands
+
+Players can configure which language incoming chat messages are translated into using the `/tr` command.
+
+| Command | Description |
+|---|---|
+| `/tr <language>` | Translate incoming chat to the specified language code (e.g. `ru`, `de`). |
+| `/tr off` | Disable chat translation. Messages are displayed as sent. |
+| `/tr auto` | Detect the translation target from your game client locale automatically. |
+
+When `/tr auto` is used, XCore matches the player's client locale against the list of languages supported by the configured translation providers. If no match is found, it falls back to `en`.
+
+## Chat translation pipeline
+
+When a player sends a message, XCore passes it through the translation pipeline before delivering it to each recipient. Each recipient's session holds their translator language preference; the pipeline translates the message to that language before display.
+
+The pipeline is an ordered list of provider IDs configured in `translation.pipeline`. Providers are tried in order. If a provider fails, the next one is attempted. If all providers fail and `preserveOriginalMessageOnFailure` is `true`, the original untranslated message is shown instead of an error.
+
+```
+Incoming message
+      │
+      ▼
+Translation cache lookup (TTL: 1800s, max text: 500 chars)
+      │ miss
+      ▼
+Provider 1 (e.g. "google")  ──► success ──► deliver
+      │ failure
+      ▼
+Provider 2 (e.g. "openai")  ──► success ──► deliver
+      │ failure
+      ▼
+Fallback: original message (if preserveOriginalMessageOnFailure = true)
+```
+
+Translations are cached per (text, target language) pair to avoid redundant API calls.
+
+## Translation providers
+
+Providers are declared by ID in `globalConfig.translationProviders`. The same ID must appear in `config.translation.pipeline` to be used.
+
+Two provider types are supported:
+
+- **`google`** — Uses the Google Translate API. No model or base URL required. Recommended as the primary or sole provider.
+- **LLM** — Any OpenAI-compatible API (OpenAI, local models via Ollama, etc.). Requires `type`, `apiKey`, `baseUrl`, and `model`.
+
+## Configuration reference
+
+### `config.translation`
+
+<ParamField path="translation.enabled" type="boolean" default="true">
+  Enable or disable the chat translation pipeline entirely.
+</ParamField>
+
+<ParamField path="translation.pipeline" type="string[]" default='["google"]'>
+  Ordered list of provider IDs to try. Providers are attempted left-to-right on failure.
+</ParamField>
+
+<ParamField path="translation.preserveOriginalMessageOnFailure" type="boolean" default="true">
+  When all providers fail, show the original untranslated message instead of an error.
+</ParamField>
+
+### `config.translation.cache`
+
+<ParamField path="translation.cache.enabled" type="boolean" default="true">
+  Enable the translation result cache.
+</ParamField>
+
+<ParamField path="translation.cache.ttlSeconds" type="number" default="1800">
+  Time-to-live for cached translations in seconds. Entries older than this value are re-translated on next request.
+</ParamField>
+
+<ParamField path="translation.cache.maxTextLength" type="number" default="500">
+  Messages longer than this character limit are not cached.
+</ParamField>
+
+### `config.translation.llm`
+
+These limits apply to every LLM-type provider in the pipeline.
+
+<ParamField path="translation.llm.maxInputChars" type="number" default="500">
+  Messages longer than this limit are not sent to any LLM provider.
+</ParamField>
+
+<ParamField path="translation.llm.maxOutputChars" type="number" default="1200">
+  LLM responses longer than this limit are discarded and treated as a provider failure.
+</ParamField>
+
+<ParamField path="translation.llm.preserveFormattingTokens" type="boolean" default="true">
+  Instruct the LLM to preserve Mindustry color and formatting tags (e.g. `[red]`, `[]`).
+</ParamField>
+
+<ParamField path="translation.llm.stripControlCharacters" type="boolean" default="true">
+  Remove non-printable control characters from LLM output before delivery.
+</ParamField>
+
+### `globalConfig.translationProviders`
+
+Each entry in the map is keyed by a provider ID (e.g. `"google"`, `"openai"`).
+
+<ParamField path="translationProviders.<id>.type" type="string" default="google">
+  Provider type. Use `"google"` for Google Translate or any string (e.g. `"openai"`) for an OpenAI-compatible LLM endpoint.
+</ParamField>
+
+<ParamField path="translationProviders.<id>.enabled" type="boolean" default="true">
+  Whether this provider is active.
+</ParamField>
+
+<ParamField path="translationProviders.<id>.apiKey" type="string">
+  API key for the provider. Not required for the built-in Google provider when running without a quota key.
+</ParamField>
+
+<ParamField path="translationProviders.<id>.baseUrl" type="string" default="https://api.openai.com/v1">
+  Base URL for the API. Override to point at a local or third-party OpenAI-compatible endpoint.
+</ParamField>
+
+<ParamField path="translationProviders.<id>.model" type="string" default="gpt-5.4">
+  Model name to use for LLM providers.
+</ParamField>
+
+<ParamField path="translationProviders.<id>.timeoutSeconds" type="number" default="15">
+  Request timeout in seconds. If the provider does not respond within this window, the request is treated as a failure.
+</ParamField>
+
+<ParamField path="translationProviders.<id>.maxRetries" type="number" default="1">
+  Number of retry attempts on transient failure before moving to the next pipeline provider.
+</ParamField>
+
+<ParamField path="translationProviders.<id>.supportedLanguages" type="string[]">
+  Optional set of BCP-47 language codes this provider handles. When non-empty, the provider is skipped for languages outside this set.
+</ParamField>
+
+## Example configuration
+
+The example below configures a two-stage pipeline: Google Translate handles all languages first, and a local LLM handles overflow or specific language restrictions.
+
+<CodeGroup>
+
+```json config.json
+{
+  "translation": {
+    "enabled": true,
+    "pipeline": ["google", "local-llm"],
+    "preserveOriginalMessageOnFailure": true,
+    "cache": {
+      "enabled": true,
+      "ttlSeconds": 1800,
+      "maxTextLength": 500
+    },
+    "llm": {
+      "maxInputChars": 500,
+      "maxOutputChars": 1200,
+      "preserveFormattingTokens": true,
+      "stripControlCharacters": true
+    }
+  }
+}
+```
+
+```json globalConfig.json
+{
+  "translationProviders": {
+    "google": {
+      "type": "google",
+      "enabled": true
+    },
+    "local-llm": {
+      "type": "openai",
+      "enabled": true,
+      "apiKey": "sk-...",
+      "baseUrl": "http://localhost:11434/v1",
+      "model": "mistral",
+      "timeoutSeconds": 20,
+      "maxRetries": 1,
+      "supportedLanguages": ["ru", "uk", "be"]
+    }
+  }
+}
+```
+
+</CodeGroup>
+
+<Tip>
+  Start with just `"pipeline": ["google"]` and add an LLM provider only if you need better quality for specific language pairs. Google Translate covers all nine UI languages and requires no additional configuration.
+</Tip>

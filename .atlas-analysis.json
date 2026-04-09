@@ -1,0 +1,91 @@
+{
+  "projectType": "general",
+  "projectName": "XCore Plugin",
+  "projectDescription": "A multifunctional Mindustry server plugin providing player management, moderation, game modes, localization, and cross-server networking.",
+  "theme": "aspen",
+  "primaryColor": "#1565C0",
+  "lightColor": "#1976D2",
+  "darkColor": "#0D47A1",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "configuration"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/player-management",
+              "features/moderation",
+              "features/voting",
+              "features/game-modes",
+              "features/badges",
+              "features/private-messages",
+              "features/localization",
+              "features/discord-integration"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/networking",
+              "architecture/database"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Command Reference",
+        "groups": [
+          {
+            "group": "Player Commands",
+            "pages": [
+              "commands/player-commands",
+              "commands/social-commands",
+              "commands/vote-commands"
+            ]
+          },
+          {
+            "group": "Admin Commands",
+            "pages": [
+              "commands/admin-commands",
+              "commands/server-commands"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Player statistics tracking with PvP ratings and Hexed progression",
+    "Comprehensive moderation system (ban, mute, votekick) with cross-server broadcast",
+    "Cross-server chat and networking via Redis streams",
+    "Unlockable player badges with admin management",
+    "Persistent private messaging with inbox, reply, and block flows",
+    "Configurable AI/LLM translation pipeline for multilingual servers",
+    "Multiple game modes: Hexed, PvP, Last Standing, Event",
+    "Discord integration for admin access and server linking",
+    "Ingress-based connection security (ban checks, rate limiting, whitelist)",
+    "Dependency injection via avaje-inject with exposed BeanScope for dependent plugins"
+  ],
+  "publicApiSurface": [
+    "XcorePlugin.container (BeanScope) — exposed for dependent plugins",
+    "ModerationService.banById / unbanById / muteById / unmuteById",
+    "ModerationService.tempBanByUuidOrIp / tempUnban",
+    "SessionService.get / getOrLoadFromDb",
+    "NetworkService.post (Redis event broadcasting)",
+    "Badge enum — ADMIN, DEVELOPER, TRANSLATOR, MAP_MAKER, CONTRIBUTOR, BUG_FINDER, EVENT_WINNER, VETERAN",
+    "HexedRanks.HexedRank enum — newbie, regular, advanced, veteran, davastator, the_legend",
+    "Config fields — server, playerLimit, disabledCommands, disabledFeatures, translation pipeline",
+    "GlobalConfig fields — mongoConnectionString, databaseName, translationProviders, vote settings",
+    "IngressCheck interface — pluggable connection verification checks"
+  ]
+}

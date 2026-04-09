@@ -1,0 +1,218 @@
+---
+title: Moderation
+description: Ban, mute, and connection-check systems in XCore, including cross-server broadcast, ingress checks, and duration formats.
+---
+
+XCore provides a centralized moderation system through `ModerationService`. Bans and mutes are persisted in MongoDB and broadcast to other XCore nodes via Redis. Connection security is enforced by a layered `IngressService` pipeline that validates every incoming connection before it is accepted.
+
+## Overview
+
+<CardGroup cols={2}>
+  <Card title="Ban System" icon="ban">
+    Temporary bans stored in MongoDB's `bans` collection. Matched by UUID and/or IP on every connection attempt.
+  </Card>
+  <Card title="Mute System" icon="volume-xmark">
+    Temporary mutes stored in the `mutes` collection. Cross-server delivery via Redis so the muted player is silenced on all nodes.
+  </Card>
+  <Card title="Votekick" icon="user-slash">
+    Player-initiated kicks, described in the [Voting](/features/voting) page.
+  </Card>
+  <Card title="Ingress Pipeline" icon="shield">
+    Multi-stage connection validation pipeline. Fast checks run synchronously; slow checks (e.g. database lookups) run in parallel using virtual threads.
+  </Card>
+</CardGroup>
+
+## Duration Format
+
+All duration arguments are parsed by `TimeService.parsePeriod`. The accepted format is a numeric value followed by a unit suffix:
+
+| Suffix | Unit |
+|--------|------|
+| `s` | seconds |
+| `m` | minutes |
+| `h` | hours |
+| `d` | days |
+| `w` | weeks |
+| `y` | years |
+
+**Examples:**
+
+```
+30m    → 30 minutes
+2h     → 2 hours
+1d     → 1 day
+7d     → 7 days (1 week)
+```
+
+If no suffix is provided, the default unit depends on the command:
+
+- **ban** commands default to **days**
+- **mute** commands default to **hours**
+
+## Ban System
+
+Bans are stored in the `bans` MongoDB collection as `BanData` documents. A ban record holds: `name`, `uuid`, `ip`, `adminName`, `adminDiscordId`, `reason`, and `expireDate` (a UTC `Instant`).
+
+The repository matches a connection attempt against a ban by UUID **or** IP using a MongoDB `$or` filter.
+
+### Admin Commands (in-game)
+
+**Requires `admin` permission.**
+
+```
+/ban <pid> <period> [reason]
+```
+
+Bans the player with the given PID for the specified duration. The player is kicked immediately if online. The ban is broadcast to all connected XCore nodes via `NetworkService.post(BanData)`.
+
+```
+/ban 42 7d Griefing the base
+/ban 99 30m
+```
+
+```
+/unban <pid>
+```
+
+Removes the ban record for the player with the given PID.
+
+```
+/unban 42
+```
+
+### Console Commands
+
+```
+tempban <target> <period> [reason]
+```
+
+Bans a player from the server console. `<target>` accepts:
+
+- `#<pid>` — player numeric ID (e.g. `#42`)
+- UUID string
+- IP address
+- Player name
+
+```
+tempban #42 1d Repeated griefing
+tempban 192.168.1.100 12h Bot activity
+tempban f3a2... 7d
+```
+
+```
+tempunban <type> <value>
+```
+
+Removes a temporary ban. `<type>` is one of `uuid`, `ip`, or `id`.
+
+```
+tempunban id 42
+tempunban uuid f3a2b1...
+tempunban ip 192.168.1.100
+```
+
+```
+tempbans [search]
+```
+
+Lists all active temporary bans. Optional `[search]` filters by player name, UUID, or IP.
+
+### Cross-Server Ban Broadcast
+
+When any `ban` command succeeds, `ModerationService` calls `NetworkService.post(ban)` and `NetworkService.post(new SocketEvents.KickBannedPlayer(uuid, ip))`. This publishes the `BanData` to a Redis stream consumed by all other XCore nodes. Each node writes the ban record to its own MongoDB instance and kicks the player if they are currently online.
+
+<Note>
+  On the next connection attempt after a ban expires (`ban.expired()` returns `true`), `BanCheck` automatically removes the record from MongoDB and allows the connection.
+</Note>
+
+## Mute System
+
+Mutes are stored in the `mutes` MongoDB collection. A mute record holds: `uuid`, `name`, `adminName`, `adminDiscordId`, `reason`, and `expireDate`.
+
+When a muted player sends a chat message, `SecurityService` intercepts it before delivery.
+
+### Admin Commands (in-game)
+
+**Requires `admin` permission.**
+
+```
+/mute <pid> <period> [reason]
+```
+
+Mutes the player with the given PID. The muted player receives a localized notification showing the admin's name, the reason, and the duration. The mute is published via Redis to all nodes.
+
+```
+/mute 42 2h Spamming
+/mute 99 30m
+```
+
+```
+/unmute <pid>
+```
+
+Removes the mute for the given PID.
+
+### Console Commands
+
+```
+mute <target> <period> [reason]
+```
+
+Mutes by `#<pid>` or UUID from the console. Defaults to **hours**.
+
+```
+mute #42 1h Spam
+```
+
+```
+unmute <target>
+```
+
+Unmutes by `#<pid>` or UUID.
+
+## Ingress Connection Pipeline
+
+`IngressService` validates every incoming connection before it is handed off to Mindustry. Checks are categorized by priority:
+
+- **Priority < 0** → fast checks, run **sequentially** on the main thread
+- **Priority ≥ 0** → slow checks (may do I/O), run **in parallel** via virtual threads with a 5-second timeout per check
+
+### Check Execution Order
+
+| Priority | Check | Description |
+|----------|-------|-------------|
+| −100 | `VersionCheck` | Rejects connections from clients with a mismatched version or type. Custom clients are allowed if `allowsCustomClients()` is enabled. |
+| −80 | `RateLimitCheck` | Denies connections if 3 or more connections already exist from the same IP. Offending IP is blacklisted (`blacklistDos`). |
+| −40 | `WhitelistCheck` | If whitelist is enabled, rejects any UUID/USID not on the list. |
+| varies | `BasicValidationCheck` | Validates the connect packet fields. |
+| varies | `DuplicateCheck` | Prevents duplicate connections from the same UUID. |
+| varies | `KickTimeoutCheck` | Enforces kick cooldown periods. |
+| varies | `NameValidationCheck` | Rejects blank or invalid player names. |
+| varies | `PlayerLimitCheck` | Enforces the configured `playerLimit`. Admins are counted separately. |
+| varies | `ModCompatibilityCheck` | Checks admin mod version compatibility. |
+| 0 | `BanCheck` | Queries MongoDB for an active ban matching the UUID or IP. Expired bans are cleaned up on the spot. |
+
+<Note>
+  `BanCheck` runs at priority 0 (parallel) because it performs a MongoDB lookup. If the check times out (>5 seconds), the connection is allowed through with a warning logged.
+</Note>
+
+### BanCheck Details
+
+When a matching ban is found:
+
+1. If `ban.expired()` is `true`, the ban is deleted from MongoDB and the connection is allowed.
+2. Otherwise, a localized kick message is constructed showing the banned player's name, the admin who issued the ban, the reason, remaining days/hours/minutes, and a Discord invite URL from `GlobalConfig.discordUrl`.
+
+For Mindustry-native bans (UUID ban list or IP subnet ban), a separate `ban-content` message is shown that includes the Discord URL but no expiry information.
+
+## Admin vs Console Flows
+
+| Capability | In-game admin (`/ban`, `/mute`) | Console (`tempban`, `mute`) |
+|---|---|---|
+| Target by PID | Yes (`/ban <pid>`) | Yes (`#<pid>`) |
+| Target by UUID | No | Yes |
+| Target by IP | No | Yes |
+| Target by name | No | Yes |
+| Audit trail (admin name) | Player's in-game name | `"console"` |
+| Discord ID attached | Yes (if linked) | No |
+| Cross-server broadcast | Yes | Yes |

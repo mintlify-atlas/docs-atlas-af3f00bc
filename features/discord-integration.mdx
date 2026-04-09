@@ -1,0 +1,135 @@
+---
+title: Discord integration
+description: Link your Mindustry account to Discord, cross-post global chat, and receive moderation events through the XCore Discord bot.
+---
+
+XCore connects your game server to Discord through an account linking system, a global chat bridge, and automated moderation notifications.
+
+## Overview
+
+<Columns cols={2}>
+  <Card title="Account linking" icon="link">
+    Players generate a one-time code in-game and enter it in the Discord bot to permanently associate their Mindustry account with a Discord user.
+  </Card>
+  <Card title="Global chat bridge" icon="comments">
+    Messages sent with `/g` are cross-posted to a configured Discord channel, and Discord messages are relayed back in-game.
+  </Card>
+  <Card title="Moderation events" icon="shield">
+    Ban and mute actions are published to Discord automatically, giving moderators an audit trail without leaving Discord.
+  </Card>
+  <Card title="Discord menu" icon="bars">
+    The `/discord` command opens an in-game interactive menu with quick access to linking, status, and the Discord server URL.
+  </Card>
+</Columns>
+
+## Account linking
+
+Linking connects a Mindustry player profile to a specific Discord account. Once linked, the Discord bot can identify you by your in-game account and grant role-based permissions.
+
+### Linking flow
+
+<Steps>
+  <Step title="Generate a link code in-game">
+    Run `/discord link` while connected to the server. XCore generates a unique 6-character code (e.g. `X3KP7R`) and displays it in chat along with the Discord server URL and the expiry time.
+
+    The code expires after **10 minutes**. If you already have a pending code that has not expired, the existing code is shown instead of generating a new one.
+
+    ```
+    /discord link
+    ```
+  </Step>
+  <Step title="Open the Discord server">
+    Join the XCore Discord server using the URL shown in chat. You can also find the link in the in-game `/discord` menu.
+  </Step>
+  <Step title="Enter the code in the Discord bot">
+    Send the link command to the Discord bot with your code. The bot verifies the code, matches it to your player profile, and confirms the link.
+
+    ```
+    /link X3KP7R
+    ```
+
+    <Note>
+      The exact bot command may vary. Refer to the bot's help text in Discord.
+    </Note>
+  </Step>
+  <Step title="Confirm the link">
+    The bot replies with a confirmation message in Discord, and your in-game account is updated immediately. You can verify the link status at any time with `/discord status`.
+  </Step>
+</Steps>
+
+### Checking link status
+
+```
+/discord status
+```
+
+Shows your linked Discord username and ID if your account is linked, or a message indicating that no link exists.
+
+### Unlinking
+
+```
+/discord unlink
+```
+
+Removes the association between your Mindustry account and your Discord account. Any Discord role permissions granted through the link are revoked at the same time.
+
+<Warning>
+  Unlinking is immediate and permanent. You will need to go through the linking flow again to re-link your account.
+</Warning>
+
+## Discord menu
+
+Running `/discord` without a subcommand opens an interactive in-game menu. The menu provides quick access to:
+
+- The Discord server invite URL (from `globalConfig.discordUrl`)
+- Account linking and status actions
+- Other community links configured in `GlobalConfig`
+
+## Global chat bridge
+
+Players with enough playtime can send messages to the global chat channel with `/g <message>`. These messages are:
+
+1. Broadcast to all XCore nodes (other game servers in the network).
+2. Posted to the Discord channel configured by `config.discordChannelId`.
+
+This lets Discord community members follow in-game conversations in real time.
+
+<Note>
+  Global chat requires a minimum playtime. See `globalConfig.minPlayTimeForGlobalChat` (default: 240 minutes). Players who do not meet the threshold cannot use `/g`.
+</Note>
+
+## Moderation events
+
+Ban and mute events are automatically delivered to Discord as part of the cross-server broadcast. When an admin issues a `/ban` or `/mute` command, the event is published via Redis and picked up by the Discord bot, which posts a formatted message to the configured moderation channel.
+
+This provides a persistent audit log of moderation actions without requiring admins to manually report them.
+
+## Configuration
+
+### `globalConfig`
+
+<ParamField path="discordUrl" type="string" default="https://discord.gg/RUMCCa9QAC">
+  The invite URL for your Discord server. Shown in `/discord link` output, ban kick messages, and the in-game Discord menu.
+</ParamField>
+
+### `config`
+
+<ParamField path="discordChannelId" type="number" default="0">
+  Discord channel ID where global chat messages and moderation events are posted. Set to `0` to disable cross-posting.
+</ParamField>
+
+## Link code details
+
+Link codes are generated with a cryptographically secure random source using the alphabet `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (ambiguous characters removed). Each code is 6 characters long and stored in Redis with the following payload:
+
+| Field | Description |
+|---|---|
+| `code` | The 6-character link code |
+| `playerUuid` | Mindustry UUID of the requesting player |
+| `playerPid` | Numeric player ID |
+| `nickname` | Player display name at time of generation |
+| `server` | Server identifier the code was generated on |
+| `createdAt` | Timestamp of code creation |
+| `expiresAt` | Timestamp when the code becomes invalid (10 minutes after creation) |
+
+The Discord bot must supply the matching `playerUuid` and `playerPid` when confirming a code. If either field does not match, the confirmation is rejected, preventing code reuse across accounts.

@@ -1,0 +1,185 @@
+---
+title: Database & Persistence
+description: MongoDB collections, the versioned migration system, and the repository pattern used by XCore.
+---
+
+## Overview
+
+XCore uses **MongoDB** as its sole persistence layer via the official MongoDB Sync driver. All data access goes through typed repository classes. A versioned migration system runs on startup to bring the schema up to date before any other initialization proceeds.
+
+## Required Configuration
+
+Two fields in `GlobalConfig` (the shared global config file) are mandatory. The plugin throws `IllegalStateException` at startup if either is missing or blank:
+
+```json
+{
+  "mongo_connection_string": "mongodb://localhost:27017",
+  "database_name": "xcore"
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `mongoConnectionString` | `String` | Yes | Full MongoDB connection URI |
+| `databaseName` | `String` | Yes | Database to connect to |
+| `isDataBaseReadOnly` | `boolean` | No (`false`) | Disable all writes; skip migrations |
+| `isDataBaseMigration` | `boolean` | No (`false`) | Allow migration execution on startup |
+
+<Warning>
+  If `isDataBaseMigration` is `false` and the database is behind the current schema version, the plugin automatically forces `isDataBaseReadOnly = true` for the session. No writes will succeed until migrations are run.
+</Warning>
+
+### Connection String Examples
+
+```
+# Local standalone
+mongodb://localhost:27017
+
+# With authentication
+mongodb://user:password@localhost:27017/xcore?authSource=admin
+
+# Replica set
+mongodb://host1:27017,host2:27017,host3:27017/xcore?replicaSet=rs0
+
+# Atlas
+mongodb+srv://user:password@cluster.mongodb.net/xcore
+```
+
+## Collections
+
+| Collection | Repository Class | Primary Key / Lookup | Description |
+|---|---|---|---|
+| `players` | `PlayerDataRepository` | `uuid` (unique index), `pid` | Player profiles, ranks, badges, preferences |
+| `bans` | `BanDataRepository` | `uuid` or `ip` | Active and historical bans |
+| `mutes` | _(MuteDataRepository)_ | `uuid` or `ip` | Active and historical mutes |
+| `maps` | `MapDataRepository` | `_id` | Map metadata, play counts, ratings |
+| `games_v2` | _(GameDataRepository)_ | `_id` | Game session records |
+| `events` | _(EventDataRepository)_ | `_id` | Scheduled community events |
+| `private_messages` | _(PrivateMessageRepository)_ | `_id` | Direct messages between players |
+| `admins` | _(legacy)_ | `uuid` | Pre-V1 admin records; migrated into `players` |
+| `settings` | _(internal)_ | `_id` | Migration version tracking and migration lock |
+| `counters` | _(internal)_ | `_id` | Auto-increment sequences (e.g. `player_id`) |
+
+## Database Migrations
+
+### How They Run
+
+`MigrationService.run()` is the first thing called after the DI container is built. The sequence:
+
+1. Read the current version from the `settings` collection (`_id = "db_version"`).
+2. Determine the highest version among all registered `Migration` beans.
+3. If the database is already at or above the target version, exit immediately.
+4. Acquire a **distributed lock** in `settings` (`_id = "migration_lock"`) using an atomic `findOneAndUpdate` with an `upsert`. The lock records which server holds it and expires after 10 minutes to prevent deadlocks.
+5. If the lock is held by another server, this server enters read-only mode and exits — migrations will be applied by the lock holder.
+6. Run each pending migration in version order. After each successful migration, update `db_version` in `settings` and release the lock only after all migrations complete.
+7. If any migration throws, log a critical error and return `false` — `XcorePlugin.init()` aborts.
+
+### Migration Interface
+
+```java
+public interface Migration {
+    int getVersion();
+    String getDescription();
+    void up(MongoDatabase database);
+}
+```
+
+Each migration is a `@Singleton` bean discovered by avaje-inject. `MigrationService` receives them as `List<Migration>`, sorted by version.
+
+### V1 — Init Modern Database
+
+**Version:** 1  
+**Description:** Migrate admins to players, rename fields to snake_case, and initialize schema version.
+
+V1 performs bulk `$rename` operations across all collections to standardize field names to `snake_case`:
+
+```java
+// Base fields renamed across players, maps, events, games, bans, mutes:
+"createdModelTime" -> "created_at"
+"editModelTime"    -> "updated_at"
+"deleteModelTime"  -> "deleted_at"
+"versionModel"     -> "version"
+"isVisible"        -> "is_visible"
+
+// Player-specific renames (sample):
+"ip"              -> "last_ip"
+"password"        -> "password_hash"
+"pvpRating"       -> "pvp_rating"
+"totalPlayTime"   -> "total_play_time"
+"admin"           -> "is_admin"
+```
+
+After renaming, V1 migrates all documents from the legacy `admins` collection into `players` using a batched `bulkWrite` (1,000 documents per batch), merging `password_hash`, `admin_confirmed`, and `is_admin = true`.
+
+### V2 — Add Admin Source Field
+
+**Version:** 2  
+**Description:** Initialize `admin_source` without auto-promoting legacy admins to Discord access.
+
+V2 sets `admin_source = "NONE"` on every player document that does not yet have the field, regardless of admin status:
+
+```java
+// All admins missing admin_source
+players.updateMany(
+    { admin_source: { $exists: false }, is_admin: true },
+    { $set: { admin_source: "NONE" } }
+);
+
+// All non-admins missing admin_source
+players.updateMany(
+    { admin_source: { $exists: false }, is_admin: false },
+    { $set: { admin_source: "NONE" } }
+);
+```
+
+This ensures every player document has a well-defined `admin_source` before any code that reads it is deployed.
+
+## Repository Pattern
+
+All repositories extend `DataRepository<T>`, which provides:
+
+- `save(T data)` — upsert with read-only guard
+- `findById(ObjectId id)` — lookup by `_id`
+- `isReadOnly()` — checks `GlobalConfig.isDataBaseReadOnly`
+
+Each repository adds domain-specific methods. Examples from the two main repositories:
+
+### PlayerDataRepository
+
+Backed by the `players` collection with indexes on `uuid` (unique), `pid`, `nickname`, and `discord_id`.
+
+```java
+playerRepo.findByUuid(uuid);
+playerRepo.findByPid(pid);
+playerRepo.findByDiscordId(discordId);
+playerRepo.updateAdminStatus(uuid, true, "DISCORD");
+playerRepo.updateHexedProgress(uuid, rank, points);
+playerRepo.incrementPlayTime(uuid, deltaSeconds);
+playerRepo.findPage(skip, limit, filters);   // paginated admin UI
+playerRepo.search("nickname", limit, page);  // fuzzy search
+```
+
+Player IDs (`pid`) are auto-incremented using an atomic `findOneAndUpdate` on the `counters` collection (`_id = "player_id"`).
+
+### BanDataRepository
+
+Backed by the `bans` collection. Lookup is by `uuid` **or** `ip` (an `OR` filter), matching Mindustry's dual-identifier ban model.
+
+```java
+banRepo.find(uuid, ip);         // active ban check
+banRepo.save(banData);          // upsert
+banRepo.delete(uuid, ip);       // pardon
+banRepo.findAll();              // sync to in-memory cache on startup
+banRepo.findAllPaged(limit, page);
+banRepo.search(name, limit, page);
+```
+
+## Read-Only Mode
+
+When `isDataBaseReadOnly = true` (set explicitly or forced by the migration system), every repository's `save()` and mutating methods return early without touching MongoDB. A warning is logged for each skipped write:
+
+```
+[XCore-DB] Database is in Read-Only mode. Save ignored for BanData
+```
+
+This allows a server to stay online and serve players even when the database state is inconsistent — bans are still enforced from the in-memory cache, and players can connect and play.

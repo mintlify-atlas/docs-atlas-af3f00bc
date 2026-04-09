@@ -1,0 +1,90 @@
+---
+title: "Vote Commands"
+description: "Voting commands for player-initiated kicks and in-progress vote sessions."
+---
+
+<Info>
+  XCore supports multiple concurrent vote types (votekick, RTV, VNW). Only one vote session may be active at a time.
+</Info>
+
+## Starting a Vote
+
+### /votekick
+
+Nominate a teammate for removal. A server-wide vote is started immediately and the initiator's ballot is cast as **yes** automatically.
+
+**Usage:** `/votekick <target> <reason>`
+
+**Permission:** player
+
+**Restrictions:** `@RequiresPlayTime(VOTE_KICK)` — the initiating player must meet the minimum play-time threshold.
+
+| Argument | Type   | Required | Description                                              |
+| -------- | ------ | -------- | -------------------------------------------------------- |
+| `target` | Player | Yes      | Online player name to kick.                              |
+| `reason` | string | Yes      | Reason shown to all players during the vote (greedy).   |
+
+**Example:**
+
+```text
+/votekick GrieferXYZ Team-killing repeatedly
+```
+
+<Warning>
+  The following restrictions apply before a vote is started:
+
+  - **Another vote is in progress** — only one active vote is allowed at a time. Wait for the current session to conclude.
+  - **Target is an admin** — attempting to votekick an admin kicks *the initiator* with a 5-minute timeout instead.
+  - **Target is not your teammate** — cross-team votekicks are not permitted.
+</Warning>
+
+---
+
+## Casting a Vote
+
+### /vote
+
+Cast a ballot in the currently active vote session.
+
+**Usage:** `/vote <choice>`
+
+**Permission:** player
+
+| Argument | Type   | Required | Description                                                       |
+| -------- | ------ | -------- | ----------------------------------------------------------------- |
+| `choice` | string | Yes      | Your vote: `y` / `yes` for approve, `n` / `no` for reject, `c` to cancel (admin only). |
+
+**Vote choice reference:**
+
+| Input      | Meaning           | Sign |
+| ---------- | ----------------- | ---- |
+| `y`, `yes` | Approve / yes     | `+1` |
+| `n`, `no`  | Reject / no       | `-1` |
+| `c`        | Cancel (admin)    | —    |
+
+**Example:**
+
+```text
+/vote y
+/vote yes
+/vote n
+/vote no
+/vote c
+```
+
+<Note>
+  The `c` (cancel) choice is only accepted from players with the `admin` permission. Non-admins who send `/vote c` receive an access-denied message.
+</Note>
+
+**Error conditions:**
+
+| Condition                     | Message                                    |
+| ----------------------------- | ------------------------------------------ |
+| No vote is currently running  | `error-no-voting`                          |
+| Player already voted          | `error-already-voted`                      |
+| Target tries to vote on self  | `error-vote-yourself` (votekick only)      |
+| Invalid choice string         | Usage reminder listing valid choices       |
+
+<Tip>
+  Vote input is normalised before parsing: leading/trailing whitespace and special characters (foo characters) are stripped, and the string is lowercased. This means inputs like `"Y "` or `" Yes"` are accepted.
+</Tip>
